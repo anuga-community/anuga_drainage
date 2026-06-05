@@ -56,7 +56,6 @@ domain = create_domain_from_regions(bounding_polygon,
     maximum_triangle_area=0.1,
     breaklines=riverWalls.values(),
     interior_regions=interior_regions,
-    mesh_filename=meshname,
     use_cache=False,
     verbose=False)
 

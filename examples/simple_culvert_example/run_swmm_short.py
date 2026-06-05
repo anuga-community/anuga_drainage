@@ -26,7 +26,9 @@ outname =  'domain_swmm_short'
 
 rf = 20  # refinement factor for domain, if too coarse the inlets will overlap the wall
 
-dt = 0.2     # yield step  (note that this can be larger than routing step set in the .inp file)
+dt = 1.0     # yield/coupling step. Must be a whole number of seconds: stock pyswmm 2.1.0
+             # strides in integer seconds only (swmm_stride). SWMM still routes internally at
+             # the smaller ROUTING_STEP set in the .inp; this only sets the coupling exchange interval.
 out_dt = 1.0 # output step
 ft = 400     # final timestep
 
@@ -292,8 +294,8 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     # Run SWMM for a time of dt sewer using the calculated coupling fluxes
     swmm_inlet.generated_inflow(Q_in[0])
     swmm_outlet.generated_inflow(Q_in[1])
-    sim.step_advance(dt)
-    sim.next()
+    sim.step_advance(int(dt))   # stock pyswmm 2.1.0 swmm_stride requires an int (whole seconds)
+    next(sim)
 
     # Determine how much actually flowed into 1D model
     inlet_vol = - swmm_inlet.statistics['lateral_infow_vol'] + swmm_inlet.statistics['flooding_volume'] 

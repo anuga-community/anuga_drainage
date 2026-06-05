@@ -41,8 +41,7 @@ bounding_polygon = [[W, S], [E, S], [E, N], [W, N]]
 domain = anuga.create_domain_from_regions(bounding_polygon,
     boundary_tags={'south': [0], 'east': [1], 'north': [2], 'west': [3]},
     maximum_triangle_area=1.0,
-    mesh_filename=meshname,
-    use_cache=False, 
+    use_cache=False,
     verbose=verbose)
 
 #------------------------------------------------------------------------------

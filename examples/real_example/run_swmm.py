@@ -8,13 +8,12 @@ from anuga import Region
 import anuga.utilities.spatialInputUtil as su
 
 import numpy as np
-from hymo import SWMMInpFile
 import pickle
 from pyswmm import Simulation, Nodes, Links
 import matplotlib.pyplot as plt
 
 import time
-from anuga_drainage.inlet_initialization import initialize_inlets
+from anuga_drainage.inlet_initialization import initialize_inlets, read_inp_coordinates
 from anuga_drainage.coupling import calculate_Q
 
 time_average = 10 # sec
@@ -55,7 +54,6 @@ domain = create_domain_from_regions(bounding_polygon,
     maximum_triangle_area = 0.1,
     breaklines = riverWalls.values(),
     interior_regions = interior_regions,
-    mesh_filename = meshname,
     use_cache = False,
     verbose = False)
 
@@ -87,7 +85,7 @@ input1_anuga_region   = Region(domain, radius=1.0, center=(305694.91,6188013.94)
 input1_anuga_inlet_op = Inlet_operator(domain, input1_anuga_region, Q=input_rate) 
 
 sim = Simulation(inp_name)
-inp = SWMMInpFile(inp_name)
+node_coordinates = read_inp_coordinates(inp_name)
 
 
 link_volume_0 = 0
@@ -102,7 +100,7 @@ n_in_nodes    = len(in_node_ids)
 inlet_area = np.full((n_in_nodes),1.167)
 Q_in_0     = n_in_nodes*[0.0]
 n_sides    = 6
-inlet_operators,inlet_elevation,_,_ = initialize_inlets(domain,sim,inp,n_sides,inlet_area,Q_in_0,rotation = 0)
+inlet_operators,inlet_elevation,_,_ = initialize_inlets(domain,sim,node_coordinates,n_sides,inlet_area,Q_in_0,rotation = 0)
 
 inlet_weir_length = 2*np.sqrt(np.pi*inlet_area)
 
@@ -165,8 +163,8 @@ for t in domain.evolve(yieldstep=dt, finaltime=ft):
     for node, Qin in zip(Nodes(sim), Q_in): 
         node.generated_inflow(Qin)
 
-    sim.step_advance(dt) 
-    sim.next()
+    sim.step_advance(int(dt))   # stock pyswmm 2.1.0 swmm_stride requires an int (whole seconds)
+    next(sim)
 
     ### Using flow methods methods
     # inlet_flow = [-node.lateral_inflow + node.flooding ofr node in Nodes(sim) if node.is_junction()]

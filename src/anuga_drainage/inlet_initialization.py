@@ -1,8 +1,30 @@
 import math
 from pyswmm import Nodes
-from hymo import SWMMInpFile
 from anuga import Inlet_operator,Region
 import numpy as np
+import pandas as pd
+
+
+def read_inp_coordinates(inp_path):
+    """Read the [COORDINATES] section of a SWMM .inp file.
+
+    Returns a DataFrame indexed by node id with X_Coord/Y_Coord columns,
+    e.g. coords.loc[nodeid].X_Coord. Replaces the former hymo dependency
+    (node coordinates are map metadata, not exposed by the pyswmm API).
+    """
+    names, xs, ys = [], [], []
+    in_section = False
+    with open(inp_path) as f:
+        for line in f:
+            s = line.strip()
+            if s.startswith('['):
+                in_section = s.upper().startswith('[COORDINATES')
+                continue
+            if not in_section or not s or s.startswith(';'):
+                continue
+            name, x, y = s.split()[:3]
+            names.append(name); xs.append(float(x)); ys.append(float(y))
+    return pd.DataFrame({'X_Coord': xs, 'Y_Coord': ys}, index=names)
 
 def n_sided_inlet(n_sides, area, inlet_coordinate, rotation):
     # Computes the vertex coordinates and side length of a regular polygon with:
@@ -26,7 +48,9 @@ def n_sided_inlet(n_sides, area, inlet_coordinate, rotation):
         
     return vertex, side_length
 
-def initialize_inlets(domain, sim, inp, n_sides = 6, manhole_areas = [1], Q_in_0 = [1], rotation = 0):
+def initialize_inlets(domain, sim, coordinates, n_sides = 6, manhole_areas = [1], Q_in_0 = [1], rotation = 0):
+    # `coordinates` is a DataFrame of node map coordinates indexed by node id
+    # (see read_inp_coordinates), with X_Coord/Y_Coord columns.
     if n_sides < 3:
         raise RuntimeError('A polygon should have at least 3 sides')
 
@@ -44,7 +68,7 @@ def initialize_inlets(domain, sim, inp, n_sides = 6, manhole_areas = [1], Q_in_0
         if isinstance(manhole_areas,list) or isinstance(manhole_areas,np.ndarray):
             inlet_area = manhole_areas[inlet_idx] 
 
-        inlet_coordinates = [inp.coordinates.loc[node.nodeid].X_Coord, inp.coordinates.loc[node.nodeid].Y_Coord]
+        inlet_coordinates = [coordinates.loc[node.nodeid].X_Coord, coordinates.loc[node.nodeid].Y_Coord]
         vertices, side_length = n_sided_inlet(n_sides, inlet_area, inlet_coordinates, rotation)
         
         inlet_operators[node.nodeid] = Inlet_operator(domain, Region(domain,polygon = vertices,expand_polygon = True), Q_in_0[inlet_idx], zero_velocity=True)
