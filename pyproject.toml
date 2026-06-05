@@ -2,6 +2,11 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# Allow the git direct reference in the `pipedream` optional-dependency
+# (pipedream-solver @ git+https://...).
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [project]
 name = "anuga_drainage"
 version = "0.0.1"
@@ -10,13 +15,32 @@ authors = [
 ]
 description = "Coupling anuga with SWMM and pipedream"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+# Runtime deps of the package itself. ANUGA is intentionally NOT listed: it is
+# provided by the conda environment, not pip-installed (see CLAUDE.md). The 1D
+# backends are optional extras below.
+dependencies = [
+    "numpy",
+    "pandas",
+]
+
+[project.optional-dependencies]
+# SWMM backend (standard PyPI release).
+swmm = ["pyswmm>=2.1"]
+# pipedream backend. The PyPI release (0.2.2) uses np.bool8, removed in numpy
+# 2.x, so it must come from git master until a fixed release ships
+# (see mdbartos/pipedream#73).
+pipedream = ["pipedream-solver @ git+https://github.com/mdbartos/pipedream.git"]
+test = ["pytest"]
 
 [project.urls]
 "Homepage" = "https://github.com/anuga-community/anuga_drainage"
 "Bug Tracker" = "https://github.com/anuga-community/anuga_drainage/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

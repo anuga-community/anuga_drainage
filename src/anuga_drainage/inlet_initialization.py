@@ -1,8 +1,10 @@
 import math
-from pyswmm import Nodes
-from anuga import Inlet_operator,Region
 import numpy as np
 import pandas as pd
+
+# pyswmm and anuga are imported lazily inside initialize_inlets() so that the
+# pure helpers below (read_inp_coordinates, n_sided_inlet) can be imported and
+# unit-tested without a full ANUGA/SWMM install.
 
 
 def read_inp_coordinates(inp_path):
@@ -51,6 +53,9 @@ def n_sided_inlet(n_sides, area, inlet_coordinate, rotation):
 def initialize_inlets(domain, sim, coordinates, n_sides = 6, manhole_areas = [1], Q_in_0 = [1], rotation = 0):
     # `coordinates` is a DataFrame of node map coordinates indexed by node id
     # (see read_inp_coordinates), with X_Coord/Y_Coord columns.
+    from pyswmm import Nodes
+    from anuga import Inlet_operator, Region
+
     if n_sides < 3:
         raise RuntimeError('A polygon should have at least 3 sides')
 

@@ -1,4 +1,13 @@
-anuga
-pyswmm
-pipedream-solver
-
+# Dependencies for running the examples.
+#
+# ANUGA is NOT listed here: it is provided by the conda environment and must
+# not be pip-installed (see CLAUDE.md). The package's own runtime deps (numpy,
+# pandas) and the 1D backends are declared in pyproject.toml as extras; this
+# file mirrors them for a quick `pip install -r requirements.txt` on top of an
+# ANUGA conda env.
+numpy
+pandas
+pyswmm>=2.1
+# pipedream PyPI release (0.2.2) is broken under numpy 2.x; use git master
+# until a fixed release ships (see mdbartos/pipedream#73).
+pipedream-solver @ git+https://github.com/mdbartos/pipedream.git
