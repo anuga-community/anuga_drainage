@@ -4,7 +4,7 @@ print('IMPORT NECESSARY MODULES')
 
 import anuga
 import numpy as np
-from anuga_drainage import calculate_Q
+from anuga_drainage import Coupler, PipedreamBackend
 
 #------------------------------------------------------------------------------
 print('FILENAMES, MODEL DOMAIN and VARIABLES')
@@ -162,7 +162,13 @@ print('Set time averaging of Q')
 
 # slow the response of the coupling calculation
 time_average = 1 # sec
-Q_in_old = np.array([0.0, 0.0])
+
+coupler = Coupler(inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
+                  beds=anuga_beds,
+                  weir_lengths=anuga_length_weirs,
+                  manhole_areas=anuga_area_manholes,
+                  backend=PipedreamBackend(superlink),
+                  time_average=time_average)
 
 #---------------------------------------------------------------------------
 print('Start Evolve')
@@ -216,24 +222,14 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     Q_dks.append(superlink.Q_dk.copy())
 
         
-    # Calculate discharge at inlets and smooth its response
-    Q_in = calculate_Q(superlink.H_j, anuga_depths, anuga_beds, anuga_length_weirs, anuga_area_manholes)
-
-    Q_in = ((time_average - dt)*Q_in_old + dt*Q_in)/time_average
-    Q_in_old = Q_in
+    # Calculate discharge at inlets, smooth, step the sewer and feed the
+    # realised flow back to ANUGA (see anuga_drainage.Coupler).
+    Q_in = coupler.step(dt).Q_in
 
     Q_ins.append(Q_in.copy())
 
     if domain.yieldstep_counter%domain.output_frequency == 0:
         print('    Q            ', Q_in)
-    
-    # Simulate sewer with flow input (or outflow)
-    superlink.step(Q_in=Q_in, dt=dt)
-    #superlink.reposition_junctions()
-
-    # And consequently set anuga sim with flow output (or inflow)
-    inlet1_anuga_inlet_op.set_Q(-Q_in[0])
-    outlet_anuga_inlet_op.set_Q(-Q_in[1])
 
 
 H_j = np.vstack(H_js)

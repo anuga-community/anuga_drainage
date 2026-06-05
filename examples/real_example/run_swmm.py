@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 import time
 from anuga_drainage.inlet_initialization import initialize_inlets, read_inp_coordinates
-from anuga_drainage.coupling import calculate_Q
+from anuga_drainage import Coupler, SwmmBackend
 
 time_average = 10 # sec
 dt           = 1.0     # yield step
@@ -105,7 +105,6 @@ inlet_operators,inlet_elevation,_,_ = initialize_inlets(domain,sim,node_coordina
 inlet_weir_length = 2*np.sqrt(np.pi*inlet_area)
 
 
-Q_in_old       = np.zeros_like(inlet_elevation)
 outfall_vol    = 0
 
 times          = []
@@ -131,6 +130,13 @@ print('Start ANUGA evolve')
 old_inlet_vol = [- node.statistics['lateral_infow_vol'] + node.statistics['flooding_volume'] for node in Nodes(sim) if node.is_junction()]
 node_volume    = sum(old_inlet_vol)
 
+# Coupler drives the per-step exchange; inlets ordered to match the SWMM
+# junction order (same order as in_node_ids / the backend's heads).
+inlets  = [inlet_operators[node_id] for node_id in in_node_ids]
+coupler = Coupler(inlets=inlets, beds=inlet_elevation,
+                  weir_lengths=inlet_weir_length, manhole_areas=inlet_area,
+                  backend=SwmmBackend(sim), time_average=time_average)
+
 for t in domain.evolve(yieldstep=dt, finaltime=ft):
     anuga_depths = np.array([inlet_operators[in_id].inlet.get_average_depth() for in_id in in_node_ids])
 
@@ -148,9 +154,12 @@ for t in domain.evolve(yieldstep=dt, finaltime=ft):
 
     inlet_head_swmm   = np.array([node.head for node in Nodes(sim) if node.is_junction()])
 
-    Q_in     = calculate_Q(inlet_head_swmm, anuga_depths, inlet_elevation, inlet_weir_length, inlet_area) # inputs between manual and auto checked to be the same 20/09
-    Q_in     = ((time_average - dt)*Q_in_old + dt*Q_in)/time_average
-    Q_in_old = Q_in.copy()
+    # Compute the coupling flux (smoothed), step SWMM, and feed the realised
+    # SWMM flow back to ANUGA (see anuga_drainage.Coupler). inlet_head_swmm is
+    # read above only for the saved diagnostics.
+    step       = coupler.step(dt)
+    Q_in       = step.Q_in
+    inlet_flow = step.anuga_flux
 
     if do_data_save:
         Q_ins.append(Q_in.copy())
@@ -159,28 +168,6 @@ for t in domain.evolve(yieldstep=dt, finaltime=ft):
     if domain.yieldstep_counter%output_frequency == 0 and do_print:
         print(f'Q_in = {Q_in}')
 
-    # Simulate sewer with flow input
-    for node, Qin in zip(Nodes(sim), Q_in): 
-        node.generated_inflow(Qin)
-
-    sim.step_advance(int(dt))   # stock pyswmm 2.1.0 swmm_stride requires an int (whole seconds)
-    next(sim)
-
-    ### Using flow methods methods
-    # inlet_flow = [-node.lateral_inflow + node.flooding ofr node in Nodes(sim) if node.is_junction()]
-    
-    ### Compute inlet flow using volumes
-    inlet_vol     = [- node.statistics['lateral_infow_vol'] + node.statistics['flooding_volume'] for node in Nodes(sim) if node.is_junction()]
-    inlet_flow    = [(new_vol - old_vol)/dt for new_vol,old_vol in zip(inlet_vol,old_inlet_vol)]
-    old_inlet_vol = inlet_vol
-
-    # Compute statistics and append data
-    inlet_idx = 0
-    for node in Nodes(sim):
-        if node.is_junction():
-            inlet_operators[node.nodeid].set_Q(inlet_flow[inlet_idx])
-            inlet_idx += 1
-    
     outfall_vol += Links(sim)['Conduit_4'].flow*dt
 
     sewer_volume         = link_volume + node_volume

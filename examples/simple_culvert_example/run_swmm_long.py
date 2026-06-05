@@ -15,7 +15,7 @@ print('ABOUT to Start Simulation: IMPORT NECESSARY MODULES')
 
 import anuga
 import numpy as np
-from anuga_drainage import calculate_Q
+from anuga_drainage import Coupler, SwmmBackend
 
 #------------------------------------------------------------------------------
 print('SETUP FILENAMES, MODEL DOMAIN and VARIABLES')
@@ -165,15 +165,17 @@ Q_ins = []
 print('Average Q calculation')
 #---------------------------------------------------------------------------
 
-Q_in_old = np.array([0.0, 0.0])
+coupler = Coupler(inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
+                  beds=anuga_beds,
+                  weir_lengths=anuga_length_weirs,
+                  manhole_areas=anuga_area_manholes,
+                  backend=SwmmBackend(sim, junctions=[swmm_inlet, swmm_outlet]),
+                  time_average=time_average)
 
 cumulative_inlet_flooding = 0.0
 cumulative_outlet_flooding = 0.0
 cumulative_inlet_flow = 0.0
 cumulative_outlet_flow = 0.0
-
-old_outlet_vol = 0.0
-old_inlet_vol = 0.0
 
 #---------------------------------------------------------------------------
 print('Start Evolve')
@@ -259,49 +261,25 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     cumulative_inlet_flooding += swmm_inlet.flooding*dt 
     cumulative_outlet_flooding += swmm_outlet.flooding*dt
 
-    # Calculate the coupling flux and smooth to response
-    node_heads = np.array([inlet_head, outlet_head])
-    
-    Q_in = calculate_Q(node_heads, anuga_depths, anuga_beds, anuga_length_weirs, anuga_area_manholes)
-
-    Q_in = ((time_average - dt)*Q_in_old + dt*Q_in)/time_average
-    Q_in_old = Q_in
+    # Calculate the coupling flux (smoothed), step SWMM by dt, and feed the
+    # realised SWMM flow back to ANUGA. The Coupler sets inlet1/outlet to the
+    # realised flux; the outlet is overridden below to also return water
+    # leaving the system at the outfall.
+    step = coupler.step(dt)
+    Q_in = step.Q_in
+    inlet_flow, outlet_flow = step.anuga_flux
 
     Q_ins.append(Q_in.copy())
 
     if print_out:
-        print('    Calculated Q     ', Q_in[0], Q_in[1]) 
-
-    # Run SWMM for a time of dt sewer using the calculated coupling fluxes
-    swmm_inlet.generated_inflow(Q_in[0])
-    swmm_outlet.generated_inflow(Q_in[1])
-    sim.step_advance(int(dt))   # stock pyswmm 2.1.0 swmm_stride requires an int (whole seconds)
-    next(sim)
-
-    # Determine how much actually flowed into 1D model
-    inlet_vol = - swmm_inlet.statistics['lateral_infow_vol'] + swmm_inlet.statistics['flooding_volume'] 
-    inlet_flow = (inlet_vol - old_inlet_vol)/dt
-    old_inlet_vol = inlet_vol
-
-    if print_out:
-        print('    inlet vol   :', inlet_vol)
+        print('    Calculated Q     ', Q_in[0], Q_in[1])
         print('    inlet flow  :', inlet_flow)
-
-    outlet_vol = - swmm_outlet.statistics['lateral_infow_vol'] + swmm_outlet.statistics['flooding_volume'] 
-    outlet_flow = (outlet_vol - old_outlet_vol)/dt
-    old_outlet_vol = outlet_vol
-
-    if print_out:
-        print('    outlet vol   :', outlet_vol)
-        print('    outlet flow  :', outlet_flow)
+        print('    outlet flow :', outlet_flow)
 
     cumulative_inlet_flow += inlet_flow*dt
     cumulative_outlet_flow += outlet_flow*dt
 
-
-
-    # And consequently set anuga coupling Inlet_operators with actual SWMM fluxes
-    inlet1_anuga_inlet_op.set_Q(inlet_flow)
+    # Outlet inlet also returns water leaving the system at the outfall.
     outlet_anuga_inlet_op.set_Q(outlet_flow + swmm_outfall.total_inflow)
 
 
