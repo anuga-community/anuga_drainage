@@ -15,6 +15,7 @@ from anuga import Region
 
 import numpy as np
 import math
+from anuga_drainage import Coupler, PipedreamBackend
 
 #------------------------------------------------------------------------------
 # FILENAMES, MODEL DOMAIN and VARIABLES
@@ -113,13 +114,13 @@ inlet1_anuga_inlet_op = Inlet_operator(domain, inlet1_anuga_region, Q=0.0, zero_
 inlet2_anuga_inlet_op = Inlet_operator(domain, inlet2_anuga_region, Q=0.0, zero_velocity=True)
 inlet3_anuga_inlet_op = Inlet_operator(domain, inlet3_anuga_region, Q=0.0, zero_velocity=True)
 inlet4_anuga_inlet_op = Inlet_operator(domain, inlet4_anuga_region, Q=0.0, zero_velocity=True)
-inlet4_anuga_inlet_op = Inlet_operator(domain, outlet_anuga_region, Q=0.0, zero_velocity=True)
+outlet_anuga_inlet_op = Inlet_operator(domain, outlet_anuga_region, Q=0.0, zero_velocity=True)
 
 anuga_elevs = np.array([inlet1_anuga_inlet_op.inlet.get_average_elevation(),
                         inlet2_anuga_inlet_op.inlet.get_average_elevation(),
                         inlet3_anuga_inlet_op.inlet.get_average_elevation(),
                         inlet4_anuga_inlet_op.inlet.get_average_elevation(),
-                        inlet4_anuga_inlet_op.inlet.get_average_elevation()])
+                        outlet_anuga_inlet_op.inlet.get_average_elevation()])
 
 x = domain.centroid_coordinates[:, 0]
 y = domain.centroid_coordinates[:, 1]
@@ -177,9 +178,20 @@ Q_uks =[]
 Q_dks =[]
 times =[]
 
-Q_in_old = np.zeros_like(anuga_elevs)
-#time_average = 10 # sec
+time_average = 10 # sec, matches the run_swmm.py twin
 domain.output_frequency = 100
+
+# All five superjunctions couple to a surface region: the four inlets plus the
+# downstream outlet (outlet_anuga_inlet_op, at the Outfall coordinates). Circular
+# pits of the given radius -> weir crest = perimeter, manhole area = pit area.
+coupler = Coupler(inlets=[inlet1_anuga_inlet_op, inlet2_anuga_inlet_op,
+                          inlet3_anuga_inlet_op, inlet4_anuga_inlet_op,
+                          outlet_anuga_inlet_op],
+                  beds=anuga_elevs,
+                  weir_lengths=np.full(5, 2*np.pi*radius),
+                  manhole_areas=np.full(5, np.pi*radius**2),
+                  backend=PipedreamBackend(superlink),
+                  time_average=time_average)
 for t in domain.evolve(yieldstep=dt, finaltime=ft):
     #print('\n')
     if domain.yieldstep_counter%domain.output_frequency == 0:
@@ -191,55 +203,26 @@ for t in domain.evolve(yieldstep=dt, finaltime=ft):
                              inlet2_anuga_inlet_op.inlet.get_average_depth(),
                              inlet3_anuga_inlet_op.inlet.get_average_depth(),
                              inlet4_anuga_inlet_op.inlet.get_average_depth(),
-                             inlet4_anuga_inlet_op.inlet.get_average_depth()])
+                             outlet_anuga_inlet_op.inlet.get_average_depth()])
 
     anuga_stages = np.array([inlet1_anuga_inlet_op.inlet.get_average_stage(),
                              inlet2_anuga_inlet_op.inlet.get_average_stage(),
                              inlet3_anuga_inlet_op.inlet.get_average_stage(),
                              inlet4_anuga_inlet_op.inlet.get_average_stage(),
-                             inlet4_anuga_inlet_op.inlet.get_average_stage()])
+                             outlet_anuga_inlet_op.inlet.get_average_stage()])
 
 
 
-    # Compute inflow/outflow to sewer
-    C_w = 0.67
-    L_w = 0.25**2 * np.pi
+    # Compute the exchange flux with calculate_Q, smooth it, step the sewer and
+    # feed the realised flow back to ANUGA (see anuga_drainage.Coupler).
+    Q_in = coupler.step(dt).Q_in
 
-    # FIXME SR: Convert this over to the calculate_Q procedure
-    # from anuga_drainage
-    Q_in = np.where(superlink.H_j <= anuga_elevs,
-                    C_w * L_w * np.sqrt(anuga_depths) * anuga_depths,
-                    C_w * L_w * np.sqrt(superlink.H_j - anuga_elevs)
-                    * (anuga_elevs- superlink.H_j ))
-
-
-    # average it out
-    #Q_in = ((time_average - dt)*Q_in_old + dt*Q_in)/time_average
-    #Q_in_old = Q_in
-
-    #Q_in = np.where(superlink.H_j <= anuga_stages,
-    #               C_w * L_w * np.sqrt(anuga_depths) * anuga_depths, 0.0 )
-
-
-    if domain.yieldstep_counter%domain.output_frequency == 0:    
+    if domain.yieldstep_counter%domain.output_frequency == 0:
         print(anuga_depths)
         print(anuga_elevs)
         print(anuga_stages)
-        
         print(superlink.H_j)
         print(Q_in)
-
- 
-    # Simulate sewer with flow input
-    superlink.step(Q_in=Q_in, dt=dt)
-    #superlink.reposition_junctions()
-
-    # Add/remove flows from surface domain
-    inlet1_anuga_inlet_op.set_Q(-Q_in[0])
-    inlet2_anuga_inlet_op.set_Q(-Q_in[1])
-    inlet3_anuga_inlet_op.set_Q(-Q_in[2])
-    inlet4_anuga_inlet_op.set_Q(-Q_in[3])
-    inlet4_anuga_inlet_op.set_Q(-Q_in[4])
 
     # Compute volumes
     link_volume = ((superlink._A_ik * superlink._dx_ik).sum() +

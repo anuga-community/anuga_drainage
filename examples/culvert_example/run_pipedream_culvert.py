@@ -7,6 +7,7 @@ print (' ABOUT to Start Simulation:- Importing Modules')
 import anuga, numpy, time, os, glob
 from anuga import create_domain_from_regions, Domain, Inlet_operator
 import anuga.utilities.spatialInputUtil as su
+from anuga_drainage import Coupler, PipedreamBackend
 
 from anuga import Region
 
@@ -151,38 +152,13 @@ time_series = []
 
 print('Start Evolve')
 
-def Calculate_Q(head1D, depth2D, bed2D, Lweir, Amanhole, cw=1.0, co=1.0):
-    """
-    Reference:
-    A methodology for linking 2D overland flow models with the sewer network model SWMM 5.1 
-    based on dynamic link libraries
-    Leandro, Jorge, Martins, Ricardo
-    Water Science and Technology
-    2016, 73, 3017-3026
-
-    cw is the weir discharge coefficient, 
-    w is the weir crest width [m], 
-    Amh is the manhole area [m2] 
-    co is the orifice discharge coefficient.
-
-    """
-
-    import numpy as np
-    from anuga import g
-
-    Q = np.zeros_like(head1D)
-
-    # if head1D < bed2D use Weir Equation (Reference Equation (10)):
-    Q = np.where(head1D<bed2D, cw*Lweir*depth2D*np.sqrt(2*g*depth2D), Q)
-
-    # If head1D > bed2D and  head1D < (depth2D + bed2d) use orifice equation (Equation (11))
-    Q = np.where(np.logical_and(bed2D<=head1D, head1D<depth2D+bed2D) , co*Amanhole*np.sqrt(2*g*(depth2D+bed2D-head1D)), Q)
-
-    # Otherwise if h1d >= h2d + Z2d use orifice equation (Equation (11)) surcharge
-    Q = np.where(head1D>=depth2D+bed2D,  -co*Amanhole*np.sqrt(2*g*(head1D-depth2D-bed2D)), Q)
-
-    return Q
-
+# This example historically used cw = co = 1.0 (vs the package default 0.67).
+coupler = Coupler(inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
+                  beds=anuga_beds,
+                  weir_lengths=anuga_Lweirs,
+                  manhole_areas=anuga_Amanholes,
+                  backend=PipedreamBackend(superlink),
+                  cw=1.0, co=1.0)
 
 
 for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
@@ -232,23 +208,12 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     Q_dks.append(superlink.Q_dk.copy())
 
         
-    Q_in = Calculate_Q(superlink.H_j, anuga_depths, anuga_beds, anuga_Lweirs, anuga_Amanholes)
+    # Calculate the exchange flux, step the sewer and feed the realised flow
+    # back to ANUGA (see anuga_drainage.Coupler).
+    Q_in = coupler.step(dt).Q_in
 
     if domain.yieldstep_counter%domain.output_frequency == 0:
         print('    Q            ', Q_in)
-    
-    # Compute inflow/outflow to sewer
-    #C_o = 0.67
-    #A_o = 2 * np.pi
-    #Q_in = C_o * A_o * np.sign(anuga_depths - (superlink.H_j - superlink._z_inv_j)) * np.sqrt(np.abs(anuga_depths - (superlink.H_j - superlink._z_inv_j)))
-
-    # Simulate sewer with flow input
-    superlink.step(Q_in=Q_in, dt=dt)
-    #superlink.reposition_junctions()
-
-    # Add/remove flows from surface domain
-    inlet1_anuga_inlet_op.set_Q(-Q_in[0])
-    outlet_anuga_inlet_op.set_Q(-Q_in[1])
 
 
 H_j = np.vstack(H_js)
