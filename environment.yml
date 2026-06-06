@@ -1,0 +1,28 @@
+# Reproducible conda environment for running the anuga_drainage examples.
+#
+#   conda env create -f environment.yml
+#   conda activate anuga_drainage
+#
+# This installs ANUGA 3.3.6 from conda-forge plus this package and both 1D
+# backends. Notes:
+#   * conda-forge ships ANUGA for Python 3.10-3.13 (not 3.14 yet), so this file
+#     targets 3.12 for a one-command install of the released ANUGA. The
+#     maintainer's dev box instead runs ANUGA built from source (3.3.6.dev) on
+#     Python 3.14 — see CLAUDE.md.
+#   * The 1D backends and this package come via pip from the project's extras
+#     (see pyproject.toml). pipedream-solver is pulled from git master because
+#     its PyPI release (0.2.2) uses np.bool8, removed in numpy 2.x
+#     (mdbartos/pipedream#73).
+#   * Run `conda env create` from the repository root so the editable install
+#     (`-e .`) picks up this package.
+name: anuga_drainage
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - anuga=3.3.6
+  - pandas
+  - matplotlib
+  - pip
+  - pip:
+      - -e .[swmm,pipedream,test]

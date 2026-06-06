@@ -8,8 +8,16 @@ inlets/manholes every timestep using weir/orifice equations.
 
 ## Installation
 
-ANUGA is heavy and is expected to come from an existing **conda environment**
-where it is already built — it is *not* pip-installed here. On top of that env:
+The quickest path is the bundled conda environment (ANUGA 3.3.6 from
+conda-forge + this package + both backends), created from the repo root:
+
+```bash
+conda env create -f environment.yml
+conda activate anuga_drainage
+```
+
+Or, on an **existing conda environment** that already provides ANUGA (it is
+heavy and *not* pip-installed here):
 
 ```bash
 pip install -e .              # the anuga_drainage package (numpy, pandas)
