@@ -86,12 +86,11 @@ class _FakeBackend:
 
 
 def test_coupler_step_feeds_realised_flux_to_inlets():
-    pytest.importorskip("anuga")  # Coupler.step calls calculate_Q -> anuga.g
-
     inlets = [_FakeInlet(depth=1.0, volume=10.0), _FakeInlet(depth=1.0, volume=10.0)]
     backend = _FakeBackend(heads=[-1.0, -1.0])  # heads below bed -> weir inflow > 0
     coupler = Coupler(inlets, beds=[0.0, 0.0], weir_lengths=[2.0, 2.0],
-                      manhole_areas=[1.0, 1.0], backend=backend, time_average=0.0)
+                      manhole_areas=[1.0, 1.0], backend=backend, time_average=0.0,
+                      g=9.81)
 
     step = coupler.step(dt=1.0)
 
@@ -105,12 +104,10 @@ def test_coupler_step_feeds_realised_flux_to_inlets():
 
 
 def test_coupler_smoothing_state_persists_across_steps():
-    pytest.importorskip("anuga")
-
     inlets = [_FakeInlet(depth=1.0, volume=10.0)]
     backend = _FakeBackend(heads=[-1.0])
     coupler = Coupler(inlets, beds=[0.0], weir_lengths=[2.0], manhole_areas=[1.0],
-                      backend=backend, time_average=10.0)
+                      backend=backend, time_average=10.0, g=9.81)
 
     first = coupler.step(dt=1.0).Q_in.copy()
     second = coupler.step(dt=1.0).Q_in.copy()

@@ -136,7 +136,7 @@ class Coupler:
 
     def __init__(self, inlets, beds, weir_lengths, manhole_areas, backend,
                  time_average=0.0, clamp=False, safety_factor=1.0,
-                 cw=0.67, co=0.67):
+                 cw=0.67, co=0.67, g=None):
         self.inlets = list(inlets)
         self.beds = np.asarray(beds, dtype=float)
         self.weir_lengths = np.asarray(weir_lengths, dtype=float)
@@ -147,6 +147,7 @@ class Coupler:
         self.safety_factor = safety_factor
         self.cw = cw
         self.co = co
+        self.g = g  # gravity for calculate_Q; None -> ANUGA's value (see calculate_Q)
         self.Q_in = np.zeros(len(self.inlets))
 
     def depths(self):
@@ -161,7 +162,7 @@ class Coupler:
         heads = self.backend.get_heads()
 
         Q = calculate_Q(heads, depths, self.beds, self.weir_lengths,
-                        self.manhole_areas, cw=self.cw, co=self.co)
+                        self.manhole_areas, cw=self.cw, co=self.co, g=self.g)
         Q = smooth_Q(Q, self.Q_in, dt, self.time_average)
         if self.clamp:
             Q = limit_outflow(Q, self.volumes(), dt, self.safety_factor)
