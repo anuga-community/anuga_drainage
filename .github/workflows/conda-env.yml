@@ -1,0 +1,42 @@
+name: conda-env
+
+# Validates that environment.yml actually solves and works end to end: it
+# creates the conda env (ANUGA 3.3.6 from conda-forge + this package + both
+# backends) and runs the FULL test suite, including the tests that need ANUGA
+# (which the fast `tests` workflow skips). Heavier than `tests`, so it only runs
+# on main/develop pushes and on PRs that touch the env or package.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    paths:
+      - environment.yml
+      - pyproject.toml
+      - 'src/**'
+      - 'tests/**'
+      - .github/workflows/conda-env.yml
+  workflow_dispatch:
+
+jobs:
+  conda-env:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}   # login shell so the created env is activated
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create env from environment.yml
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+
+      - name: Show key versions
+        run: |
+          python -c "import anuga, pyswmm, pipedream_solver, anuga_drainage; print('imports OK')"
+          micromamba list | grep -iE '^(anuga|numpy|pandas|pyswmm|python) '
+
+      - name: Run full test suite (with ANUGA)
+        run: pytest -v
