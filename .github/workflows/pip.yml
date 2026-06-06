@@ -2,10 +2,10 @@ name: pip
 
 # Installs ANUGA and this package from PyPI wheels (the pip path, as opposed to
 # conda-env.yml which uses conda-forge) and runs the full test suite on all
-# three OSes. This lane exercises the published ANUGA *wheels*, so it catches
-# wheel-packaging problems — it's how the macOS arm64 (missing libomp) and
-# Windows (unbundled DLL) wheel bugs were found; both were fixed in ANUGA 3.3.7,
-# which is why this lane no longer needs per-platform workarounds.
+# three OSes. This lane exercises the published wheels, so it catches
+# wheel-packaging problems: it found the macOS arm64 (missing libomp) bug, fixed
+# in ANUGA 3.3.7. Windows is currently an allowed-failure for a *dependency*
+# wheel bug (meshpy — see the job-level note below), not an ANUGA issue.
 
 on:
   push:
@@ -25,6 +25,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Windows is allowed to fail due to an upstream *meshpy* bug (not ANUGA):
+    # meshpy's MinGW-built Windows wheel doesn't bundle its runtime DLLs
+    # (libstdc++-6.dll, libgcc_s_seh-1.dll), so `import meshpy._internals` fails
+    # on a clean pip install ("DLL load failed"). ANUGA's own 3.3.7 wheel is
+    # fine. Drop this once meshpy ships a self-contained Windows wheel.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     defaults:
       run:
         shell: bash   # bash on every OS (Git Bash on Windows) for the heredoc
