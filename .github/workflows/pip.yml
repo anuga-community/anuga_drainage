@@ -24,6 +24,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Windows is allowed to fail: the published ANUGA win wheel has unbundled
+    # DLLs ("DLL load failed while importing polygon_ext"). A fix (delvewheel
+    # repair) is in anuga_core; drop this once a repaired win wheel is released.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     defaults:
       run:
         shell: bash   # bash on every OS (Git Bash on Windows) for the heredoc
