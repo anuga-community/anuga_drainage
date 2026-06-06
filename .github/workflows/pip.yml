@@ -1,13 +1,10 @@
-name: pip-macos
+name: pip
 
-# Tests the pip install path on Apple Silicon (macos-latest = arm64).
-#
-# conda-forge has no osx-arm64 ANUGA build (so the conda-env workflow can't
-# cover Apple Silicon), but anuga_core publishes an arm64 PyPI wheel
-# (macosx_*_arm64) for each release. So arm64 macOS is covered here via pip
-# rather than conda. ANUGA is installed from PyPI (not declared as a package
-# dependency — it is environment-provided); the rest comes from the project's
-# extras.
+# Installs ANUGA and this package from PyPI wheels (the pip path, as opposed to
+# conda-env.yml which uses conda-forge) and runs the full test suite on all
+# three OSes. This lane exercises the published ANUGA *wheels*, so it catches
+# wheel-packaging problems — e.g. the macOS arm64 wheel needing libomp at
+# runtime (see the macOS-only step below).
 
 on:
   push:
@@ -17,12 +14,19 @@ on:
       - pyproject.toml
       - 'src/**'
       - 'tests/**'
-      - .github/workflows/pip-macos.yml
+      - .github/workflows/pip.yml
   workflow_dispatch:
 
 jobs:
-  pip-macos:
-    runs-on: macos-latest   # Apple Silicon (arm64)
+  pip:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash   # bash on every OS (Git Bash on Windows) for the heredoc
     steps:
       - uses: actions/checkout@v4
 
@@ -30,16 +34,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The ANUGA arm64 wheel's C extensions link @rpath/libomp.dylib but do not
-      # bundle it (the baked rpath points at the conda build env), so a plain pip
-      # install can't import ANUGA without libomp present. Provide it via brew and
-      # expose it to dyld for the import/test steps.
-      - name: Install libomp for the ANUGA wheel
+      # The ANUGA arm64 macOS wheel links @rpath/libomp.dylib but doesn't bundle
+      # it, so `import anuga` fails on a plain pip install without libomp. Provide
+      # it via brew. (A fix to bundle libomp is pending in anuga_core's wheel
+      # build; once a fixed wheel is released this step can be removed.)
+      - name: Install libomp (macOS wheel needs OpenMP runtime)
+        if: runner.os == 'macOS'
         run: |
           brew install libomp
           echo "DYLD_LIBRARY_PATH=$(brew --prefix libomp)/lib" >> "$GITHUB_ENV"
 
-      - name: Install ANUGA (PyPI arm64 wheel) + package and backends
+      - name: Install ANUGA (PyPI wheel) + package and backends
         run: |
           python -m pip install --upgrade pip
           pip install anuga==3.3.6

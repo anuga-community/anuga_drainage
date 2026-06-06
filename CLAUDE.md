@@ -28,7 +28,7 @@ The package's own logic is tested under `tests/` (pytest). Note the `test_*.py` 
 Three GitHub Actions workflows (`.github/workflows/`):
 - `tests.yml` — fast lane, no ANUGA: installs `-e .[test]` on Python 3.10/3.12 and runs the pure-logic tests (geometry, `.inp` parser, `calculate_Q` with explicit `g`). ANUGA-dependent tests skip.
 - `conda-env.yml` — validates `environment.yml` end to end (conda-forge ANUGA + both backends via micromamba) and runs the **full** suite on **ubuntu-latest + windows-latest**.
-- `pip-macos.yml` — covers **macOS Apple Silicon** (`macos-latest`, arm64) via pip.
+- `pip.yml` — installs ANUGA + this package from **PyPI wheels** and runs the full suite on **ubuntu-latest, windows-latest and macos-latest** (Apple Silicon). This is the lane that exercises the published wheels, so it catches wheel-packaging issues (it's how the macOS arm64 wheel's missing-libomp bug surfaced — hence the macOS-only `brew install libomp` step).
 
 macOS distribution is split and asymmetric, which is why it needs its own lane:
 - **conda-forge** ANUGA builds for `osx-64` (Intel) **only** — no `osx-arm64`. So `macos-latest` (arm64) can't use the conda `environment.yml`; Intel `macos-13` runners exist but are scarce, so conda-env omits macOS.
