@@ -29,7 +29,8 @@ jobs:
     # meshpy's MinGW-built Windows wheel doesn't bundle its runtime DLLs
     # (libstdc++-6.dll, libgcc_s_seh-1.dll), so `import meshpy._internals` fails
     # on a clean pip install ("DLL load failed"). ANUGA's own 3.3.7 wheel is
-    # fine. Drop this once meshpy ships a self-contained Windows wheel.
+    # fine. Tracking: inducer/meshpy#150. Drop this once meshpy ships a
+    # self-contained Windows wheel.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     defaults:
       run:
