@@ -30,6 +30,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The ANUGA arm64 wheel's C extensions link @rpath/libomp.dylib but do not
+      # bundle it (the baked rpath points at the conda build env), so a plain pip
+      # install can't import ANUGA without libomp present. Provide it via brew and
+      # expose it to dyld for the import/test steps.
+      - name: Install libomp for the ANUGA wheel
+        run: |
+          brew install libomp
+          echo "DYLD_LIBRARY_PATH=$(brew --prefix libomp)/lib" >> "$GITHUB_ENV"
+
       - name: Install ANUGA (PyPI arm64 wheel) + package and backends
         run: |
           python -m pip install --upgrade pip
