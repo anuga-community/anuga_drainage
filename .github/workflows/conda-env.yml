@@ -35,8 +35,16 @@ jobs:
 
       - name: Show key versions
         run: |
-          python -c "import anuga, pyswmm, pipedream_solver, anuga_drainage; print('imports OK')"
-          micromamba list | grep -iE '^(anuga|numpy|pandas|pyswmm|python) '
+          python - <<'PY'
+          import importlib.metadata as md
+          for p in ["anuga", "numpy", "pandas", "pyswmm", "pipedream-solver", "anuga_drainage"]:
+              try:
+                  print(f"{p:18} {md.version(p)}")
+              except md.PackageNotFoundError:
+                  print(f"{p:18} (not found)")
+          import anuga, pyswmm, pipedream_solver, anuga_drainage  # noqa: F401
+          print("imports OK")
+          PY
 
       - name: Run full test suite (with ANUGA)
         run: pytest -v
