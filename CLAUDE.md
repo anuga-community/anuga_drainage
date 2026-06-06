@@ -20,7 +20,19 @@ pip install git+https://github.com/mdbartos/pipedream.git   # pipedream backend 
 
 **pipedream must come from git master, not PyPI.** The released `pipedream-solver 0.2.2` uses `np.bool8`, removed in numpy 2.x (which the ANUGA env requires), so it crashes on `SuperLink(...)` construction. Git master replaced those with `np.bool_`. Caveat: even git master still has `np.bool8` in two optional code paths — `nsuperlink.py` `reposition_junctions()` and the `nquality.py` water-quality solver. None of the examples use these (all have `#superlink.reposition_junctions()` commented out), but uncommenting `reposition_junctions()` will hit the bug. Fix submitted upstream: https://github.com/mdbartos/pipedream/pull/73 — once merged (and ideally released to PyPI), this caveat and the git-master requirement can be revisited.
 
-Do **not** `pip install anuga` into the conda env — ANUGA is provided by the env, not installed from `requirements.txt`. For a from-scratch setup, `environment.yml` builds a conda env with ANUGA 3.3.6 from conda-forge (Python 3.12) plus this package and both backends (`conda env create -f environment.yml`). The maintainer's dev box instead runs ANUGA from source (3.3.6.dev) on Python 3.14, which conda-forge ANUGA does not yet build for. There is **no test runner, linter, or CI configured** — `pyproject.toml` only defines packaging (hatchling). The `test_*.py` files under `examples/` are standalone runnable scripts, not a pytest suite.
+Do **not** `pip install anuga` into the conda env — ANUGA is provided by the env, not installed from `requirements.txt`. For a from-scratch setup, `environment.yml` builds a conda env with ANUGA 3.3.6 from conda-forge (Python 3.12) plus this package and both backends (`conda env create -f environment.yml`). The maintainer's dev box instead runs ANUGA from source (3.3.6.dev) on Python 3.14, which conda-forge ANUGA does not yet build for.
+
+The package's own logic is tested under `tests/` (pytest). Note the `test_*.py` files under `examples/` are unrelated — they are standalone runnable scripts, not part of the pytest suite.
+
+### CI and platform support
+Three GitHub Actions workflows (`.github/workflows/`):
+- `tests.yml` — fast lane, no ANUGA: installs `-e .[test]` on Python 3.10/3.12 and runs the pure-logic tests (geometry, `.inp` parser, `calculate_Q` with explicit `g`). ANUGA-dependent tests skip.
+- `conda-env.yml` — validates `environment.yml` end to end (conda-forge ANUGA + both backends via micromamba) and runs the **full** suite on **ubuntu-latest + windows-latest**.
+- `pip-macos.yml` — covers **macOS Apple Silicon** (`macos-latest`, arm64) via pip.
+
+macOS distribution is split and asymmetric, which is why it needs its own lane:
+- **conda-forge** ANUGA builds for `osx-64` (Intel) **only** — no `osx-arm64`. So `macos-latest` (arm64) can't use the conda `environment.yml`; Intel `macos-13` runners exist but are scarce, so conda-env omits macOS.
+- **PyPI** ANUGA wheels are `macosx_*_arm64` (Apple Silicon) **only** — no Intel macOS wheel. So Apple Silicon is covered by `pip install anuga`. Caveat: the arm64 wheel links `@rpath/libomp.dylib` but does not bundle it (rpath baked to the conda build env), so the lane must `brew install libomp` and set `DYLD_LIBRARY_PATH` for `import anuga` to work — an anuga_core wheel-packaging bug worth fixing upstream (delocate to bundle libomp).
 
 ### Project decision: standard pyswmm + our own `calculate_Q`
 We target the **standard pyswmm release** (currently 2.1.0 from PyPI) and compute the 2D↔1D exchange flux ourselves in Python via `anuga_drainage.calculate_Q`. We do **not** use the patched pyswmm fork (the `2D-coupling` branch with `node.create_opening(...)` / `sim.coupling_step(...)` used by `examples/pyswmm_with_openings/`); that API does not exist in the standard release. Treat `pyswmm_with_openings/` as legacy/reference, not the active path.
