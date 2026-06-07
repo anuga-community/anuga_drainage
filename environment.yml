@@ -20,9 +20,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.12
-  # Bump to 3.3.7 once conda-forge publishes it (the feedstock lags the PyPI
-  # release; 3.3.7 is already on PyPI and used by the pip.yml lane).
-  - anuga=3.3.6
+  - anuga=3.3.7
   - pandas
   - matplotlib
   - pip
