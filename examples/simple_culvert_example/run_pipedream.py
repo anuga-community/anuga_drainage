@@ -246,6 +246,7 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
 
 print()
 print(vb.summary())
+vb.plot('volume_balance.png')
 
 H_j = np.vstack(H_js)
 anuga_j = np.vstack(anuga_ws)

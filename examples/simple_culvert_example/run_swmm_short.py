@@ -184,7 +184,8 @@ coupler = Coupler(inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
 vb = VolumeBalance(domain,
                    coupling_inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
                    backend=coupler.backend,
-                   inflow_operators=[inflow_anuga_inlet_op])
+                   inflow_operators=[inflow_anuga_inlet_op],
+                   outfall_inlet=1)   # the outlet inlet receives the outfall return
 
 cumulative_inlet_flooding = 0.0
 cumulative_outlet_flooding = 0.0
@@ -335,6 +336,7 @@ print('anuga inflow applied volume ',inflow_anuga_inlet_op.get_total_applied_vol
 
 print()
 print(vb.summary())
+vb.plot('volume_balance.png')
 
 
 

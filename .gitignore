@@ -12,3 +12,4 @@ __pycache__
 *.tsh
 *.txt
 *.png
+examples/**/volume_balance.png

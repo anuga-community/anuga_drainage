@@ -126,9 +126,30 @@ def test_per_inlet_breakdown_catches_inlet_drying():
     assert list(p["requested"]) == pytest.approx([2.0, -3.0])
     assert list(p["accepted"]) == pytest.approx([2.0, -3.0])
     assert list(p["removed"]) == pytest.approx([-1.5, 3.0])
-    drying = p["accepted"] + p["removed"]      # ~0 means consistent
-    assert drying[0] == pytest.approx(0.5)     # inlet 0 over-drawn by 0.5
-    assert drying[1] == pytest.approx(0.0)     # inlet 1 consistent
+    assert p["drying"][0] == pytest.approx(0.5)     # inlet 0 over-drawn by 0.5
+    assert p["drying"][1] == pytest.approx(0.0)     # inlet 1 consistent
+
+
+def test_outfall_return_is_stripped_from_drying():
+    # Inlet 1 receives a 1.0 m^3 outfall return on top of its weir exchange, so
+    # its `removed` is inflated; with outfall_inlet=1 the `drying` column nets it
+    # out and reads ~0 for a consistent handoff.
+    dom = _FakeDomain()
+    inlet0, inlet1 = _FakeOp(), _FakeOp()
+    be = _VecBackend()
+    vb = VolumeBalance(dom, [inlet0, inlet1], be, outfall_inlet=1)
+    vb.step(0.0, dt=1.0, coupling_step=_Step(Q_in=[0.0, 0.0], anuga_flux=[0.0, 0.0]))
+
+    be.vols = (2.0, -3.0)         # sewer accepted at the two junctions
+    be.out = 1.0                  # 1.0 left the pipe at the outfall
+    inlet0.applied = -2.0         # inlet 0: full weir exchange, no drying
+    inlet1.applied = 3.0 + 1.0    # inlet 1: weir exchange (+3) plus outfall return (+1)
+    vb.step(1.0, dt=1.0, coupling_step=_Step(Q_in=[2.0, -3.0], anuga_flux=[0.0, 0.0]))
+
+    p = vb.per_inlet[-1]
+    assert list(p["outfall_return"]) == pytest.approx([0.0, 1.0])
+    assert p["drying"][0] == pytest.approx(0.0)   # 2 + (-2)
+    assert p["drying"][1] == pytest.approx(0.0)   # -3 + 4 - 1 (outfall stripped)
 
 
 def test_baseline_is_taken_on_first_step_not_construction():

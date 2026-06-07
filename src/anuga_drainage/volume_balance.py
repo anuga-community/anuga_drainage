@@ -48,11 +48,17 @@ class VolumeBalance:
     inflow_operators : the upstream-source Inlet_operators feeding the domain.
     """
 
-    def __init__(self, domain, coupling_inlets, backend, inflow_operators=()):
+    def __init__(self, domain, coupling_inlets, backend, inflow_operators=(),
+                 outfall_inlet=None):
         self.domain = domain
         self.coupling_inlets = list(coupling_inlets)
         self.backend = backend
         self.inflow_operators = list(inflow_operators)
+        # Index of the coupling inlet that receives the outfall return (water
+        # leaving the pipe at an outfall and dumped back on the surface). Its
+        # get_total_applied_volume folds that in, so the per-inlet `drying`
+        # column subtracts it to show only the weir exchange. None = no outfall.
+        self.outfall_inlet = outfall_inlet
         # Baselines are captured on the first step() call, not here: before the
         # evolve loop the domain can be in an unphysical initial state (stage
         # below the bed), so domain.get_water_volume() is meaningless until ANUGA
@@ -102,14 +108,14 @@ class VolumeBalance:
         loss = (dV_a + dV_p) - (dI + dB)
 
         if coupling_step is not None:
-            self._record_per_inlet(t, dt, coupling_step)
+            self._record_per_inlet(t, dt, coupling_step, dO)
 
         rec = VolumeRecord(t, V_a, V_p, inflow, boundary, inlets_a, inlets_p,
                            outfall, R_anuga, R_pipe, R_couple, loss)
         self.records.append(rec)
         return rec
 
-    def _record_per_inlet(self, t, dt, coupling_step):
+    def _record_per_inlet(self, t, dt, coupling_step, dO):
         if dt is not None:
             q = np.asarray(coupling_step.Q_in, dtype=float) * dt
             self._requested = q if self._requested is None else self._requested + q
@@ -120,11 +126,19 @@ class VolumeBalance:
         if self._inlet_base is None:
             self._inlet_base = (requested.copy(), accepted.copy(), removed.copy())
         rb, ab, mb = self._inlet_base
+        req, acc, rem = requested - rb, accepted - ab, removed - mb
+        # Strip the outfall-return volume from the designated inlet's `removed`
+        # so `drying` reflects only the surface<->pipe weir exchange.
+        outfall_return = np.zeros(n)
+        if self.outfall_inlet is not None:
+            outfall_return[self.outfall_inlet] = dO
         self.per_inlet.append({
             "t": t,
-            "requested": requested - rb,   # cumulative Q_in*dt asked of the sewer
-            "accepted": accepted - ab,     # cumulative volume the sewer took
-            "removed": removed - mb,       # cumulative volume ANUGA actually exchanged
+            "requested": req,                 # cumulative Q_in*dt asked of the sewer
+            "accepted": acc,                  # cumulative volume the sewer took
+            "removed": rem,                   # cumulative ANUGA exchange (incl. outfall)
+            "outfall_return": outfall_return, # outfall water dumped back at this inlet
+            "drying": acc + rem - outfall_return,  # ~0 = inlet not over-drawn
         })
 
     def to_dataframe(self):
@@ -156,15 +170,21 @@ class VolumeBalance:
         if not self.per_inlet:
             return []
         p = self.per_inlet[-1]
-        lines = ["  --- per inlet (cumulative volumes) ---",
-                 "    i   requested    accepted     removed   reject(req-acc)  drying(acc+rem)"]
+        has_outfall = bool(np.any(p["outfall_return"]))
+        header = "    i   requested    accepted     removed   reject(req-acc)"
+        header += "   outfall      drying" if has_outfall else "       drying"
+        lines = ["  --- per inlet (cumulative volumes) ---", header]
         for i in range(len(p["requested"])):
             req, acc, rem = p["requested"][i], p["accepted"][i], p["removed"][i]
-            lines.append(
-                f"   {i:2d}  {req:10.5f}  {acc:10.5f}  {rem:10.5f}   "
-                f"{req - acc: 12.3e}   {acc + rem: 12.3e}")
+            row = (f"   {i:2d}  {req:10.5f}  {acc:10.5f}  {rem:10.5f}   "
+                   f"{req - acc: 12.3e}")
+            if has_outfall:
+                row += f"  {p['outfall_return'][i]:9.5f}"
+            row += f"  {p['drying'][i]: 11.3e}"
+            lines.append(row)
         lines.append("    (reject = sewer didn't take the requested draw; "
-                     "drying = ANUGA removed less than the sewer accepted)")
+                     "drying = ANUGA removed less than the sewer accepted,")
+        lines.append("     net of any outfall return)")
         return lines
 
     def plot(self, filename=None, show=False):
