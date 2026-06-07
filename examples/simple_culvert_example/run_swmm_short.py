@@ -15,7 +15,7 @@ print('ABOUT to Start Simulation: IMPORT NECESSARY MODULES')
 
 import anuga
 import numpy as np
-from anuga_drainage import Coupler, SwmmBackend
+from anuga_drainage import Coupler, SwmmBackend, VolumeBalance
 
 #------------------------------------------------------------------------------
 print('SETUP FILENAMES, MODEL DOMAIN and VARIABLES')
@@ -179,6 +179,13 @@ coupler = Coupler(inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
                   backend=SwmmBackend(sim, junctions=[swmm_inlet, swmm_outlet]),
                   time_average=time_average, clamp=True)
 
+# Per-component water-volume audit (localises the mass-balance loss into the
+# ANUGA budget, the pipe budget, and the coupling handoff).
+vb = VolumeBalance(domain,
+                   coupling_inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
+                   backend=coupler.backend,
+                   inflow_operators=[inflow_anuga_inlet_op])
+
 cumulative_inlet_flooding = 0.0
 cumulative_outlet_flooding = 0.0
 cumulative_inlet_flow = 0.0
@@ -226,6 +233,7 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     time_series.append(t)
     losses.append(loss)
     anuga_ws.append(anuga_stages.copy())
+    vb.step(t)   # per-component volume audit
     
 
     # setup some aliases
@@ -318,6 +326,9 @@ print('swmm outlet flooding vol', swmm_outlet.statistics['flooding_volume'])
 print('swmm outlet vol', swmm_outlet.statistics['lateral_infow_vol'] - swmm_outlet.statistics['flooding_volume'])
 
 print('anuga inflow applied volume ',inflow_anuga_inlet_op.get_total_applied_volume())
+
+print()
+print(vb.summary())
 
 
 

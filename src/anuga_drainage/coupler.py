@@ -59,7 +59,7 @@ class SwmmBackend:
     flow SWMM actually accepted, derived from node statistics.
     """
 
-    def __init__(self, sim, junctions=None, links=None):
+    def __init__(self, sim, junctions=None, links=None, outfalls=None):
         from pyswmm import Nodes, Links
 
         self.sim = sim
@@ -67,7 +67,11 @@ class SwmmBackend:
             junctions = [n for n in Nodes(sim) if n.is_junction()]
         self.junctions = list(junctions)
         self.links = list(links) if links is not None else list(Links(sim))
+        if outfalls is None:
+            outfalls = [n for n in Nodes(sim) if n.is_outfall()]
+        self.outfalls = list(outfalls)
         self._old_vol = np.array([self._inlet_vol(n) for n in self.junctions])
+        self._outfall_vol = 0.0   # cumulative volume that left the network at outfalls
 
     @staticmethod
     def _inlet_vol(node):
@@ -84,6 +88,9 @@ class SwmmBackend:
             node.generated_inflow(q)
         self.sim.step_advance(int(dt))  # swmm_stride requires an int (whole seconds)
         next(self.sim)
+        # Accumulate the volume leaving at outfalls (read post-step, matching the
+        # outfall-return term the scripts add back to ANUGA).
+        self._outfall_vol += sum(o.total_inflow for o in self.outfalls) * dt
 
     def anuga_flux(self, Q_in, dt):
         new = np.array([self._inlet_vol(n) for n in self.junctions])
@@ -93,6 +100,22 @@ class SwmmBackend:
 
     def link_volume(self):
         return sum(link.volume for link in self.links)
+
+    # --- independent pipe-side volume accounting (for VolumeBalance) ---
+    def pipe_volume(self):
+        """Water currently held in the network: conduits + junction storage."""
+        return self.link_volume() + sum(n.volume for n in self.junctions)
+
+    def coupling_inflow_volume(self):
+        """Cumulative net volume the surface injected at the coupling junctions,
+        from SWMM's own statistics (lateral inflow accepted minus what flooded
+        back out) — measured independently of the ANUGA side."""
+        return sum(n.statistics["lateral_infow_vol"] - n.statistics["flooding_volume"]
+                   for n in self.junctions)
+
+    def outfall_volume(self):
+        """Cumulative volume that has left the network at outfalls."""
+        return self._outfall_vol
 
 
 class PipedreamBackend:
@@ -104,11 +127,13 @@ class PipedreamBackend:
 
     def __init__(self, superlink):
         self.superlink = superlink
+        self._injected = 0.0   # cumulative volume injected at the coupling junctions
 
     def get_heads(self):
         return self.superlink.H_j
 
     def step(self, Q_in, dt):
+        self._injected += float(np.sum(Q_in)) * dt
         self.superlink.step(Q_in=Q_in, dt=dt)
 
     def anuga_flux(self, Q_in, dt):
@@ -124,6 +149,19 @@ class PipedreamBackend:
 
     def sewer_volume(self):
         return self.link_volume() + self.node_volume()
+
+    # --- independent pipe-side volume accounting (for VolumeBalance) ---
+    def pipe_volume(self):
+        return self.sewer_volume()
+
+    def coupling_inflow_volume(self):
+        """Cumulative volume injected at the coupling junctions (pipedream takes
+        the requested flux as realised, so this is the integral of Q_in)."""
+        return self._injected
+
+    def outfall_volume(self):
+        """pipedream's closed networks have no outfall sink here."""
+        return 0.0
 
 
 class Coupler:
