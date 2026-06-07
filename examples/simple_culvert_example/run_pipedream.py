@@ -4,7 +4,7 @@ print('IMPORT NECESSARY MODULES')
 
 import anuga
 import numpy as np
-from anuga_drainage import Coupler, PipedreamBackend
+from anuga_drainage import Coupler, PipedreamBackend, VolumeBalance
 
 #------------------------------------------------------------------------------
 print('FILENAMES, MODEL DOMAIN and VARIABLES')
@@ -72,7 +72,7 @@ print('SETUP ANUGA INFLOW INLET')
 
 input_Q = 1.0
 line=[[59.0, 5.0],[59.0, 15.0]]
-anuga.Inlet_operator(domain, line, input_Q)
+inflow_anuga_inlet_op = anuga.Inlet_operator(domain, line, input_Q)
 
 #------------------------------------------------------------------------------
 print('SETUP ANUGA INLETS FOR COUPLING')
@@ -170,13 +170,23 @@ coupler = Coupler(inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
                   backend=PipedreamBackend(superlink),
                   time_average=time_average)
 
+# Per-component + per-inlet water-volume audit. pipedream is finite-volume, so
+# R_pipe should be ~0 here (cf. SWMM's finite-difference loss).
+vb = VolumeBalance(domain,
+                   coupling_inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
+                   backend=coupler.backend,
+                   inflow_operators=[inflow_anuga_inlet_op])
+
 #---------------------------------------------------------------------------
 print('Start Evolve')
 #---------------------------------------------------------------------------
+prev_step = None   # previous CouplingStep, for the aligned audit
 for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     #print('\n')
     if domain.yieldstep_counter%domain.output_frequency == 0:
         domain.print_timestepping_statistics()
+
+    vb.step(t, dt, prev_step)   # audit at the top of the loop (aligned reads)
 
     anuga_depths = np.array([inlet1_anuga_inlet_op.inlet.get_average_depth(),
                              outlet_anuga_inlet_op.inlet.get_average_depth()])
@@ -224,13 +234,18 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
         
     # Calculate discharge at inlets, smooth, step the sewer and feed the
     # realised flow back to ANUGA (see anuga_drainage.Coupler).
-    Q_in = coupler.step(dt).Q_in
+    step = coupler.step(dt)
+    Q_in = step.Q_in
+    prev_step = step
 
     Q_ins.append(Q_in.copy())
 
     if domain.yieldstep_counter%domain.output_frequency == 0:
         print('    Q            ', Q_in)
 
+
+print()
+print(vb.summary())
 
 H_j = np.vstack(H_js)
 anuga_j = np.vstack(anuga_ws)
