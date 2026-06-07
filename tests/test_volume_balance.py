@@ -49,7 +49,10 @@ def _make():
 
 
 def test_fully_consistent_system_has_zero_residuals():
-    vb, dom, inflow, inlet, be = _make()
+    # Outfall water returns to ANUGA at inlet 0 (internal transfer).
+    dom, inflow, inlet, be = _FakeDomain(), _FakeOp(), _FakeOp(), _FakeBackend()
+    vb = VolumeBalance(dom, [inlet], be, inflow_operators=[inflow], outfall_inlet=0)
+    vb.step(0.0)  # baseline (all zero)
     # 10 in via the source, 2 out via the boundary.
     inflow.applied = 10.0
     dom.boundary = -2.0
@@ -65,6 +68,26 @@ def test_fully_consistent_system_has_zero_residuals():
     assert r.R_pipe == pytest.approx(0.0, abs=1e-12)
     assert r.R_couple == pytest.approx(0.0, abs=1e-12)
     assert r.loss == pytest.approx(0.0, abs=1e-12)
+
+
+def test_outfall_that_leaves_the_system_is_a_loss_not_a_handoff():
+    # No outfall_inlet: the 1 m^3 that leaves at the outfall exits the system,
+    # so R_couple stays ~0 (inlet handoff consistent) and the leaving water
+    # shows up in `loss`.
+    dom, inflow, inlet, be = _FakeDomain(), _FakeOp(), _FakeOp(), _FakeBackend()
+    vb = VolumeBalance(dom, [inlet], be, inflow_operators=[inflow])  # outfall leaves
+    vb.step(0.0)
+    inflow.applied = 10.0
+    inlet.applied = -4.0       # 4 surface->pipe; nothing returns to ANUGA
+    be.cin = 4.0               # pipe received 4
+    be.out = 1.0               # pipe lost 1 at the outfall (exits the system)
+    dom.water_volume = 10.0 - 4.0   # ANUGA closes -> 6
+    be.pv = 4.0 - 1.0               # pipe closes -> 3
+    r = vb.step(1.0)
+    assert r.R_anuga == pytest.approx(0.0, abs=1e-12)
+    assert r.R_pipe == pytest.approx(0.0, abs=1e-12)
+    assert r.R_couple == pytest.approx(0.0, abs=1e-12)
+    assert r.loss == pytest.approx(0.0, abs=1e-12)  # 9 - 9 + (1 - 0); the sink closes too
 
 
 def test_loss_splits_into_the_three_residuals():

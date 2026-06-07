@@ -102,10 +102,16 @@ class VolumeBalance:
         dI, dB = inflow - bI, boundary - bB
         dA, dP, dO = inlets_a - bA, inlets_p - bP, outfall - bO
 
+        # The outfall water either returns to ANUGA at an inlet (an internal
+        # transfer, counted in inlets_a, when outfall_inlet is set) or leaves
+        # the system entirely (outfall_inlet None). Only the returned part is a
+        # coupling handoff; the part that leaves is a system sink, like boundary
+        # outflow, so it belongs in `loss`, not `R_couple`.
+        outfall_returned = dO if self.outfall_inlet is not None else 0.0
         R_anuga = dV_a - (dI + dB + dA)
         R_pipe = dV_p - (dP - dO)
-        R_couple = dA + dP - dO
-        loss = (dV_a + dV_p) - (dI + dB)
+        R_couple = dA + dP - outfall_returned
+        loss = (dV_a + dV_p) - (dI + dB) + (dO - outfall_returned)
 
         if coupling_step is not None:
             self._record_per_inlet(t, dt, coupling_step, dO)
