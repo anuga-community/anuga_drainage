@@ -195,6 +195,7 @@ cumulative_outlet_flow = 0.0
 print('Start Evolve')
 #---------------------------------------------------------------------------
 
+prev_step = None   # previous CouplingStep, for the aligned per-inlet audit
 for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     #print('\n')
     print_out = domain.yieldstep_counter%domain.output_frequency == 0
@@ -233,8 +234,11 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     time_series.append(t)
     losses.append(loss)
     anuga_ws.append(anuga_stages.copy())
-    vb.step(t)   # per-component volume audit
-    
+    # Volume audit at the top of the loop (where ANUGA's applied volume and
+    # SWMM's stats are aligned); the per-inlet requested uses the previous
+    # step's Q_in to stay aligned with those reads.
+    vb.step(t, dt, prev_step)
+
 
     # setup some aliases
     inlet_head  = swmm_inlet.head
@@ -300,6 +304,8 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
 
     # Outlet inlet also returns water leaving the system at the outfall.
     outlet_anuga_inlet_op.set_Q(outlet_flow + swmm_outfall.total_inflow)
+
+    prev_step = step   # used by the audit at the top of the next iteration
 
 
 #print(swmm_inlet.statistics)

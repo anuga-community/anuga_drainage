@@ -27,6 +27,8 @@ volumes (``pipe_volume`` / ``coupling_inflow_volume`` / ``outfall_volume``).
 """
 from collections import namedtuple
 
+import numpy as np
+
 VolumeRecord = namedtuple("VolumeRecord", [
     "t", "V_anuga", "V_pipe", "inflow", "boundary",
     "inlets_anuga", "inlets_pipe", "outfall",
@@ -59,13 +61,24 @@ class VolumeBalance:
         self.V_anuga0 = None
         self.V_pipe0 = None
         self.records = []
+        # Optional per-inlet breakdown (populated when step() is given the
+        # CouplingStep): requested (Q_in*dt) vs accepted (into the sewer) vs
+        # removed (actual ANUGA exchange). Localises sewer rejection and the
+        # inlet drying-out you flagged.
+        self._requested = None
+        self._inlet_base = None
+        self.per_inlet = []
 
     @staticmethod
     def _applied(ops):
         return sum(op.get_total_applied_volume() for op in ops)
 
-    def step(self, t):
-        """Record the budget at time ``t`` and return the VolumeRecord."""
+    def step(self, t, dt=None, coupling_step=None):
+        """Record the budget at time ``t`` and return the VolumeRecord.
+
+        Pass ``dt`` and the ``CouplingStep`` to also record the per-inlet
+        requested/accepted/removed breakdown.
+        """
         V_a = self.domain.get_water_volume()
         V_p = self.backend.pipe_volume()
         inflow = self._applied(self.inflow_operators)
@@ -88,10 +101,31 @@ class VolumeBalance:
         R_couple = dA + dP - dO
         loss = (dV_a + dV_p) - (dI + dB)
 
+        if coupling_step is not None:
+            self._record_per_inlet(t, dt, coupling_step)
+
         rec = VolumeRecord(t, V_a, V_p, inflow, boundary, inlets_a, inlets_p,
                            outfall, R_anuga, R_pipe, R_couple, loss)
         self.records.append(rec)
         return rec
+
+    def _record_per_inlet(self, t, dt, coupling_step):
+        if dt is not None:
+            q = np.asarray(coupling_step.Q_in, dtype=float) * dt
+            self._requested = q if self._requested is None else self._requested + q
+        n = len(self.coupling_inlets)
+        requested = self._requested if self._requested is not None else np.zeros(n)
+        accepted = np.asarray(self.backend.coupling_inflow_volumes(), dtype=float)
+        removed = np.array([op.get_total_applied_volume() for op in self.coupling_inlets])
+        if self._inlet_base is None:
+            self._inlet_base = (requested.copy(), accepted.copy(), removed.copy())
+        rb, ab, mb = self._inlet_base
+        self.per_inlet.append({
+            "t": t,
+            "requested": requested - rb,   # cumulative Q_in*dt asked of the sewer
+            "accepted": accepted - ab,     # cumulative volume the sewer took
+            "removed": removed - mb,       # cumulative volume ANUGA actually exchanged
+        })
 
     def to_dataframe(self):
         import pandas as pd
@@ -116,7 +150,22 @@ class VolumeBalance:
             f"  R_pipe   (pipe closes)      = {r.R_pipe: .3e}",
             f"  R_couple (handoff consistent)= {r.R_couple: .3e}",
             f"  total loss = R_anuga+R_pipe+R_couple = {r.loss: .3e}",
-        ])
+        ] + self._per_inlet_lines())
+
+    def _per_inlet_lines(self):
+        if not self.per_inlet:
+            return []
+        p = self.per_inlet[-1]
+        lines = ["  --- per inlet (cumulative volumes) ---",
+                 "    i   requested    accepted     removed   reject(req-acc)  drying(acc+rem)"]
+        for i in range(len(p["requested"])):
+            req, acc, rem = p["requested"][i], p["accepted"][i], p["removed"][i]
+            lines.append(
+                f"   {i:2d}  {req:10.5f}  {acc:10.5f}  {rem:10.5f}   "
+                f"{req - acc: 12.3e}   {acc + rem: 12.3e}")
+        lines.append("    (reject = sewer didn't take the requested draw; "
+                     "drying = ANUGA removed less than the sewer accepted)")
+        return lines
 
     def plot(self, filename=None, show=False):
         """Plot the component volumes and the three residuals vs time."""

@@ -106,12 +106,16 @@ class SwmmBackend:
         """Water currently held in the network: conduits + junction storage."""
         return self.link_volume() + sum(n.volume for n in self.junctions)
 
+    def coupling_inflow_volumes(self):
+        """Per-junction cumulative net volume the surface injected (lateral
+        inflow accepted minus what flooded back out), from SWMM's statistics."""
+        return [n.statistics["lateral_infow_vol"] - n.statistics["flooding_volume"]
+                for n in self.junctions]
+
     def coupling_inflow_volume(self):
         """Cumulative net volume the surface injected at the coupling junctions,
-        from SWMM's own statistics (lateral inflow accepted minus what flooded
-        back out) — measured independently of the ANUGA side."""
-        return sum(n.statistics["lateral_infow_vol"] - n.statistics["flooding_volume"]
-                   for n in self.junctions)
+        measured independently of the ANUGA side."""
+        return sum(self.coupling_inflow_volumes())
 
     def outfall_volume(self):
         """Cumulative volume that has left the network at outfalls."""
@@ -127,13 +131,14 @@ class PipedreamBackend:
 
     def __init__(self, superlink):
         self.superlink = superlink
-        self._injected = 0.0   # cumulative volume injected at the coupling junctions
+        self._injected = None   # per-junction cumulative injected volume
 
     def get_heads(self):
         return self.superlink.H_j
 
     def step(self, Q_in, dt):
-        self._injected += float(np.sum(Q_in)) * dt
+        q = np.asarray(Q_in, dtype=float) * dt
+        self._injected = q if self._injected is None else self._injected + q
         self.superlink.step(Q_in=Q_in, dt=dt)
 
     def anuga_flux(self, Q_in, dt):
@@ -154,10 +159,14 @@ class PipedreamBackend:
     def pipe_volume(self):
         return self.sewer_volume()
 
+    def coupling_inflow_volumes(self):
+        """Per-junction cumulative injected volume (pipedream takes the requested
+        flux as realised, so this is the integral of Q_in per junction)."""
+        return [] if self._injected is None else list(self._injected)
+
     def coupling_inflow_volume(self):
-        """Cumulative volume injected at the coupling junctions (pipedream takes
-        the requested flux as realised, so this is the integral of Q_in)."""
-        return self._injected
+        """Cumulative volume injected at the coupling junctions."""
+        return 0.0 if self._injected is None else float(self._injected.sum())
 
     def outfall_volume(self):
         """pipedream's closed networks have no outfall sink here."""

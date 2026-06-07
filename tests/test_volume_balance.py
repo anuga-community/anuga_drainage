@@ -1,7 +1,11 @@
 """Tests for the VolumeBalance residual algebra (with fakes — no ANUGA needed)."""
+from collections import namedtuple
+
 import pytest
 
 from anuga_drainage.volume_balance import VolumeBalance
+
+_Step = namedtuple("_Step", ["Q_in", "anuga_flux"])
 
 
 class _FakeDomain:
@@ -91,6 +95,40 @@ def test_coupling_mismatch_shows_in_R_couple():
     assert r.R_anuga == pytest.approx(0.0, abs=1e-12)
     assert r.R_pipe == pytest.approx(0.0, abs=1e-12)
     assert r.R_couple == pytest.approx(-1.0, abs=1e-12)
+
+
+class _VecBackend(_FakeBackend):
+    """Backend with per-junction accepted volumes for the per-inlet breakdown."""
+    vols = (0.0, 0.0)
+
+    def coupling_inflow_volumes(self):
+        return list(self.vols)
+
+    def coupling_inflow_volume(self):
+        return sum(self.vols)
+
+
+def test_per_inlet_breakdown_catches_inlet_drying():
+    dom = _FakeDomain()
+    inlet0, inlet1 = _FakeOp(), _FakeOp()
+    be = _VecBackend()
+    vb = VolumeBalance(dom, [inlet0, inlet1], be)
+    vb.step(0.0, dt=1.0, coupling_step=_Step(Q_in=[0.0, 0.0], anuga_flux=[0.0, 0.0]))
+
+    # Request 2 into the pipe at inlet 0 and 3 out at inlet 1; the sewer takes it
+    # all, but ANUGA only manages to remove 1.5 at inlet 0 (the cell dried out).
+    be.vols = (2.0, -3.0)         # accepted by the sewer
+    inlet0.applied = -1.5         # ANUGA removed only 1.5 (drying!)
+    inlet1.applied = 3.0          # inlet 1 fully realised
+    vb.step(1.0, dt=1.0, coupling_step=_Step(Q_in=[2.0, -3.0], anuga_flux=[0.0, 0.0]))
+
+    p = vb.per_inlet[-1]
+    assert list(p["requested"]) == pytest.approx([2.0, -3.0])
+    assert list(p["accepted"]) == pytest.approx([2.0, -3.0])
+    assert list(p["removed"]) == pytest.approx([-1.5, 3.0])
+    drying = p["accepted"] + p["removed"]      # ~0 means consistent
+    assert drying[0] == pytest.approx(0.5)     # inlet 0 over-drawn by 0.5
+    assert drying[1] == pytest.approx(0.0)     # inlet 1 consistent
 
 
 def test_baseline_is_taken_on_first_step_not_construction():
