@@ -135,7 +135,8 @@ node_volume    = sum(old_inlet_vol)
 inlets  = [inlet_operators[node_id] for node_id in in_node_ids]
 coupler = Coupler(inlets=inlets, beds=inlet_elevation,
                   weir_lengths=inlet_weir_length, manhole_areas=inlet_area,
-                  backend=SwmmBackend(sim), time_average=time_average)
+                  backend=SwmmBackend(sim), time_average=time_average,
+                  clamp=True)   # cap each draw at the water available in the 2D cell
 
 # Per-component + per-inlet water-volume audit. No outfall return here (water
 # leaving at the outfall exits the system), so outfall_inlet is unset.
