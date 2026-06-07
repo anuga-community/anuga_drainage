@@ -15,7 +15,7 @@ print('ABOUT to Start Simulation: IMPORT NECESSARY MODULES')
 
 import anuga
 import numpy as np
-from anuga_drainage import Coupler, SwmmBackend
+from anuga_drainage import Coupler, SwmmBackend, VolumeBalance
 
 #------------------------------------------------------------------------------
 print('SETUP FILENAMES, MODEL DOMAIN and VARIABLES')
@@ -172,6 +172,13 @@ coupler = Coupler(inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
                   backend=SwmmBackend(sim, junctions=[swmm_inlet, swmm_outlet]),
                   time_average=time_average)
 
+# Per-component + per-inlet water-volume audit.
+vb = VolumeBalance(domain,
+                   coupling_inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
+                   backend=coupler.backend,
+                   inflow_operators=[inflow_anuga_inlet_op],
+                   outfall_inlet=1)   # the outlet inlet receives the outfall return
+
 cumulative_inlet_flooding = 0.0
 cumulative_outlet_flooding = 0.0
 cumulative_inlet_flow = 0.0
@@ -181,6 +188,7 @@ cumulative_outlet_flow = 0.0
 print('Start Evolve')
 #---------------------------------------------------------------------------
 
+prev_step = None   # previous CouplingStep, for the aligned audit
 for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     #print('\n')
     print_out = domain.yieldstep_counter%domain.output_frequency == 0
@@ -188,6 +196,8 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
 
     if print_out:
         domain.print_timestepping_statistics()
+
+    vb.step(t, dt, prev_step)   # audit at the top of the loop (aligned reads)
 
     anuga_depths = np.array([inlet1_anuga_inlet_op.inlet.get_average_depth(),
                              outlet_anuga_inlet_op.inlet.get_average_depth()])
@@ -282,6 +292,8 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     # Outlet inlet also returns water leaving the system at the outfall.
     outlet_anuga_inlet_op.set_Q(outlet_flow + swmm_outfall.total_inflow)
 
+    prev_step = step   # used by the audit at the top of the next iteration
+
 
 #print(swmm_inlet.statistics)
 #print(swmm_outlet.statistics)
@@ -307,6 +319,10 @@ print('swmm outlet flooding vol', swmm_outlet.statistics['flooding_volume'])
 print('swmm outlet vol', swmm_outlet.statistics['lateral_infow_vol'] - swmm_outlet.statistics['flooding_volume'])
 
 print('anuga inflow applied volume ',inflow_anuga_inlet_op.get_total_applied_volume())
+
+print()
+print(vb.summary())
+vb.plot('volume_balance.png')
 
 
 

@@ -7,7 +7,7 @@ print (' ABOUT to Start Simulation:- Importing Modules')
 import anuga, numpy, time, os, glob
 from anuga import create_domain_from_regions, Domain, Inlet_operator
 import anuga.utilities.spatialInputUtil as su
-from anuga_drainage import Coupler, PipedreamBackend
+from anuga_drainage import Coupler, PipedreamBackend, VolumeBalance
 
 from anuga import Region
 
@@ -90,7 +90,7 @@ anuga_beds = np.array([inlet1_anuga_inlet_op.inlet.get_average_elevation(),
 print(anuga_beds)
 
 line=[[296669.258,6179974.191],[296677.321,6179976.449]]
-Inlet_operator(domain, line, 1.0)
+inflow_anuga_inlet_op = Inlet_operator(domain, line, 1.0)
 
 #------------------------------------------------------------------------------
 # PIPEDREAM
@@ -160,11 +160,20 @@ coupler = Coupler(inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
                   backend=PipedreamBackend(superlink),
                   cw=1.0, co=1.0)
 
+# Per-component + per-inlet water-volume audit (pipedream is finite-volume, so
+# R_pipe should be ~0).
+vb = VolumeBalance(domain,
+                   coupling_inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
+                   backend=coupler.backend,
+                   inflow_operators=[inflow_anuga_inlet_op])
 
+prev_step = None   # previous CouplingStep, for the aligned audit
 for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
     #print('\n')
     if domain.yieldstep_counter%domain.output_frequency == 0:
         domain.print_timestepping_statistics()
+
+    vb.step(t, dt, prev_step)   # audit at the top of the loop (aligned reads)
 
     anuga_depths = np.array([inlet1_anuga_inlet_op.inlet.get_average_depth(),
                              outlet_anuga_inlet_op.inlet.get_average_depth()])
@@ -210,11 +219,17 @@ for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
         
     # Calculate the exchange flux, step the sewer and feed the realised flow
     # back to ANUGA (see anuga_drainage.Coupler).
-    Q_in = coupler.step(dt).Q_in
+    step = coupler.step(dt)
+    Q_in = step.Q_in
+    prev_step = step
 
     if domain.yieldstep_counter%domain.output_frequency == 0:
         print('    Q            ', Q_in)
 
+
+print()
+print(vb.summary())
+vb.plot('volume_balance.png')
 
 H_j = np.vstack(H_js)
 

@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 import time
 from anuga_drainage.inlet_initialization import initialize_inlets, read_inp_coordinates
-from anuga_drainage import Coupler, SwmmBackend
+from anuga_drainage import Coupler, SwmmBackend, VolumeBalance
 
 time_average = 10 # sec
 dt           = 1.0     # yield step
@@ -137,8 +137,15 @@ coupler = Coupler(inlets=inlets, beds=inlet_elevation,
                   weir_lengths=inlet_weir_length, manhole_areas=inlet_area,
                   backend=SwmmBackend(sim), time_average=time_average)
 
+# Per-component + per-inlet water-volume audit. No outfall return here (water
+# leaving at the outfall exits the system), so outfall_inlet is unset.
+vb = VolumeBalance(domain, coupling_inlets=inlets, backend=coupler.backend,
+                   inflow_operators=[input1_anuga_inlet_op])
+
+prev_step = None   # previous CouplingStep, for the aligned audit
 for t in domain.evolve(yieldstep=dt, finaltime=ft):
     anuga_depths = np.array([inlet_operators[in_id].inlet.get_average_depth() for in_id in in_node_ids])
+    vb.step(t, dt, prev_step)   # audit at the top of the loop (aligned reads)
 
     if domain.yieldstep_counter%output_frequency == 0 and do_print:
         print(f'External flow: {system_routing.routing_stats["external_inflow"]}')
@@ -160,6 +167,7 @@ for t in domain.evolve(yieldstep=dt, finaltime=ft):
     step       = coupler.step(dt)
     Q_in       = step.Q_in
     inlet_flow = step.anuga_flux
+    prev_step  = step
 
     if do_data_save:
         Q_ins.append(Q_in.copy())
@@ -192,6 +200,10 @@ wall_clock_end = time.perf_counter()
 # print('\n')
 print(f'\nComputation time: {wall_clock_end - wall_clock_start:.2f} seconds')
 print(f'Loss = {loss:.2f}m^3 of total {t*input_rate}m^3')
+
+print()
+print(vb.summary())
+vb.plot('volume_balance.png')
 
 
 if do_data_save:

@@ -15,7 +15,7 @@ from anuga import Region
 
 import numpy as np
 import math
-from anuga_drainage import Coupler, PipedreamBackend
+from anuga_drainage import Coupler, PipedreamBackend, VolumeBalance
 
 #------------------------------------------------------------------------------
 # FILENAMES, MODEL DOMAIN and VARIABLES
@@ -192,10 +192,20 @@ coupler = Coupler(inlets=[inlet1_anuga_inlet_op, inlet2_anuga_inlet_op,
                   manhole_areas=np.full(5, np.pi*radius**2),
                   backend=PipedreamBackend(superlink),
                   time_average=time_average)
+
+# Per-component + per-inlet water-volume audit (pipedream is finite-volume, so
+# R_pipe should be ~0).
+vb = VolumeBalance(domain, coupling_inlets=coupler.inlets,
+                   backend=coupler.backend,
+                   inflow_operators=[input1_anuga_inlet_op])
+
+prev_step = None   # previous CouplingStep, for the aligned audit
 for t in domain.evolve(yieldstep=dt, finaltime=ft):
     #print('\n')
     if domain.yieldstep_counter%domain.output_frequency == 0:
         domain.print_timestepping_statistics()
+
+    vb.step(t, dt, prev_step)   # audit at the top of the loop (aligned reads)
 
     #print(domain.volumetric_balance_statistics())
 
@@ -215,7 +225,9 @@ for t in domain.evolve(yieldstep=dt, finaltime=ft):
 
     # Compute the exchange flux with calculate_Q, smooth it, step the sewer and
     # feed the realised flow back to ANUGA (see anuga_drainage.Coupler).
-    Q_in = coupler.step(dt).Q_in
+    step = coupler.step(dt)
+    Q_in = step.Q_in
+    prev_step = step
 
     if domain.yieldstep_counter%domain.output_frequency == 0:
         print(anuga_depths)
@@ -269,6 +281,9 @@ for t in domain.evolve(yieldstep=dt, finaltime=ft):
 
 H_j = np.vstack(H_js)
 
+print()
+print(vb.summary())
+vb.plot('volume_balance.png')
 
 plt.plot(times,H_j[:,0], label='Inlet 1')
 plt.plot(times,H_j[:,1], label='Inlet 2')
