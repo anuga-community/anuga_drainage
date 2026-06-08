@@ -130,7 +130,8 @@ def _f(x, default=0.0):
     return default if x is None or (isinstance(x, float) and np.isnan(x)) else float(x)
 
 
-def inp_to_pipedream(inp, manhole_area=1.0, pit_area=1.0, h_0=1e-5):
+def inp_to_pipedream(inp, manhole_area=1.0, pit_area=1.0, h_0=1e-5,
+                     cap_max_depth=False):
     """Build pipedream ``(superjunctions, superlinks)`` DataFrames from a ``.inp``.
 
     A ``.inp`` doesn't carry a few pipedream-only parameters, so these are
@@ -140,6 +141,15 @@ def inp_to_pipedream(inp, manhole_area=1.0, pit_area=1.0, h_0=1e-5):
     - ``pit_area``     — superlink internal-junction storage area ``A_s``;
     - ``h_0``          — initial depth where the ``.inp`` gives none.
 
+    ``cap_max_depth`` (default ``False``) controls the superjunction ``max_depth``.
+    SWMM *floods* above a node's MaxDepth (water returns to the surface, mass
+    conserved); pipedream has no flooding model and instead **caps the head at
+    ``max_depth`` and silently loses the surcharge**. So by default the
+    superjunctions are uncapped (``max_depth=inf``) and surcharge is left to the
+    coupling to push back onto the 2D surface (``calculate_Q`` reverses when the
+    pipe head exceeds the surface). Set ``cap_max_depth=True`` to honour the
+    ``.inp`` MaxDepth (and accept the associated loss).
+
     Outfalls become **boundary** superjunctions (``bc=True``). ``internal_links``
     is a ``SuperLink()`` constructor kwarg (not a column), so pass it there.
     """
@@ -148,7 +158,8 @@ def inp_to_pipedream(inp, manhole_area=1.0, pit_area=1.0, h_0=1e-5):
     for _, r in inp.junctions.iterrows():
         d = _f(r["init_depth"], h_0) or h_0
         md = r["max_depth"]
-        md = float(md) if md and not np.isnan(md) and md > 0 else np.inf
+        md = (float(md) if cap_max_depth and md and not np.isnan(md) and md > 0
+              else np.inf)
         nodes.append((r["name"], _f(r["elevation"]), d, False, md))
     for _, r in inp.outfalls.iterrows():
         nodes.append((r["name"], _f(r["elevation"]), h_0, True, np.inf))

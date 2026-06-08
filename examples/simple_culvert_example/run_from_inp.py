@@ -13,14 +13,15 @@ Note: couple_from_inp couples the [JUNCTIONS] (Inlet, Outlet) and treats the
 Outfall as a free-drainage boundary, so here water *leaves* at the outfall
 (rather than being returned to the surface as in run_swmm_short.py).
 
-The VolumeBalance audit is the point: R_anuga and R_couple stay ~1e-13 for
-*both* backends (ANUGA conserves; the coupling conserves), and the difference is
-all in R_pipe. SWMM handles this network cleanly (R_pipe ~ its finite-difference
-loss); pipedream, a pipe-network solver, loses the overflow from this .inp's
-RECT_OPEN culvert (a 1 m x 10 m open channel surcharging through a 0.1 m
-outpipe) — a network/solver mismatch the audit correctly attributes to R_pipe,
-not the coupling. The DRAINS network in real_example/ (closed circular pipes)
-suits pipedream better.
+The VolumeBalance audit is the point: for *both* backends R_anuga and R_couple
+stay ~1e-13 (ANUGA conserves; the coupling conserves) and the loss is isolated
+to R_pipe — SWMM's finite-difference loss (~0.01 m^3) and pipedream's ~0.3%
+surcharge residual (~0.6 m^3). Two things make the pipedream comparison clean:
+the culvert is RECT_CLOSED (a box culvert surcharges via pipedream's Preissmann
+slot, conserving), and inp_to_pipedream leaves the superjunctions uncapped
+(max_depth=inf) so surcharge is pushed back to the 2D surface by the coupling
+rather than silently lost at the node cap (pipedream has no flooding model, so
+honouring the .inp MaxDepth would drop the surcharge).
 """
 import sys
 
