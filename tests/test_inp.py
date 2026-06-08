@@ -2,7 +2,9 @@
 import numpy as np
 import pytest
 
-from anuga_drainage.inp import read_inp, inp_to_pipedream, InpNetwork
+from anuga_drainage.inp import (
+    read_inp, inp_to_pipedream, InpNetwork, _shape_geometry,
+)
 
 _INP = """\
 [TITLE]
@@ -76,6 +78,37 @@ def test_inp_to_pipedream_superlinks(inp_path):
     assert sl.loc[0, "g1"] == 0.5                          # circular diameter
     assert list(sl.loc[1, ["g1", "g2"]]) == [1.0, 2.0]     # rect height, width
     assert (sl["A_s"] == 1.2).all()                        # pit_area
+
+
+def test_shape_geometry_conversions():
+    # direct (height/width) shapes
+    assert _shape_geometry("CIRCULAR", 0.5, 0, 0, 0) == (0.5, 0.0, 0.0, 0.0)
+    assert _shape_geometry("RECT_OPEN", 1.0, 2.0, 0, 0) == (1.0, 2.0, 0.0, 0.0)
+    assert _shape_geometry("HORIZ_ELLIPSE", 1.2, 1.8, 0, 0) == (1.2, 1.8, 0.0, 0.0)
+    # triangular: SWMM top width 4 at height 2 -> pipedream slope m = 4/(2*2) = 1
+    assert _shape_geometry("TRIANGULAR", 2.0, 4.0, 0, 0) == (2.0, 1.0, 0.0, 0.0)
+    # trapezoidal: two SWMM bank slopes -> single mean slope
+    assert _shape_geometry("TRAPEZOIDAL", 2.0, 3.0, 1.0, 3.0) == (2.0, 3.0, 2.0, 0.0)
+    # force_main: diameter kept; SWMM Geom2 (roughness) is dropped for the slot default
+    g1, g2, g3, g4 = _shape_geometry("FORCE_MAIN", 0.6, 130.0, 0, 0)
+    assert (g1, g3, g4) == (0.6, 0.0, 0.0) and g2 == pytest.approx(0.01)
+
+
+def test_triangular_area_round_trips_through_pipedream():
+    # SWMM triangle height=2, top width=4 -> full area = 0.5*4*2 = 4 m^2.
+    g = pytest.importorskip("pipedream_solver.geometry")
+    import numpy as np
+    g1, m, _, _ = _shape_geometry("TRIANGULAR", 2.0, 4.0, 0, 0)
+    A = g.Triangular().A_ik(np.array([2.0]), np.array([2.0]),
+                            np.array([g1]), np.array([m]))
+    assert float(A[0]) == pytest.approx(4.0)
+
+
+def test_irregular_shape_not_yet_supported(inp_path):
+    inp = read_inp(inp_path)
+    inp.xsections.loc[0, "shape"] = "IRREGULAR"
+    with pytest.raises(NotImplementedError, match="TRANSECTS"):
+        inp_to_pipedream(inp)
 
 
 def test_unsupported_shape_raises(inp_path):

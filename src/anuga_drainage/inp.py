@@ -36,16 +36,48 @@ _NUMERIC = {
 # SWMM XSECTION shape -> pipedream geometry name. Common shapes map 1:1; SWMM
 # shapes with no pipedream equivalent (EGG, HORSESHOE, ...) raise on conversion.
 SHAPE_MAP = {
-    "CIRCULAR":     "circular",
-    "FORCE_MAIN":   "force_main",
-    "RECT_CLOSED":  "rect_closed",
-    "RECT_OPEN":    "rect_open",
-    "TRAPEZOIDAL":  "trapezoidal",
-    "TRIANGULAR":   "triangular",
-    "PARABOLIC":    "parabolic",
-    "ELLIPTICAL":   "elliptical",
-    "IRREGULAR":    "irregular",
+    "CIRCULAR":      "circular",
+    "FORCE_MAIN":    "force_main",
+    "RECT_CLOSED":   "rect_closed",
+    "RECT_OPEN":     "rect_open",
+    "TRAPEZOIDAL":   "trapezoidal",
+    "TRIANGULAR":    "triangular",
+    "PARABOLIC":     "parabolic",
+    "HORIZ_ELLIPSE": "elliptical",
+    "VERT_ELLIPSE":  "elliptical",
+    "ELLIPTICAL":    "elliptical",   # non-standard alias some tools emit
+    "IRREGULAR":     "irregular",
 }
+
+# Default Preissmann-slot width (ratio of diameter) for force mains — pipedream's
+# force_main g2, which has no SWMM geometry counterpart (SWMM Geom2 is roughness).
+_FORCE_MAIN_SLOT = 0.01
+
+
+def _shape_geometry(swmm_shape, g1, g2, g3, g4):
+    """Map SWMM XSECTION ``Geom1..4`` to pipedream ``g1..g4`` for ``swmm_shape``.
+
+    Most shapes are positional (height/width), but pipedream parametrises
+    triangular/trapezoidal channels by side slope ``m`` while SWMM gives a top
+    width / two bank slopes, and pipedream's force_main ``g2`` is a slot ratio,
+    not SWMM's roughness. Returns ``(g1, g2, g3, g4)`` for pipedream.
+    """
+    if swmm_shape == "CIRCULAR":
+        return g1, 0.0, 0.0, 0.0                       # diameter
+    if swmm_shape == "FORCE_MAIN":
+        return g1, _FORCE_MAIN_SLOT, 0.0, 0.0          # diameter; SWMM Geom2 (roughness) dropped
+    if swmm_shape in ("RECT_CLOSED", "RECT_OPEN", "PARABOLIC",
+                      "HORIZ_ELLIPSE", "VERT_ELLIPSE", "ELLIPTICAL"):
+        return g1, g2, 0.0, 0.0                        # height, width (direct)
+    if swmm_shape == "TRIANGULAR":
+        m = g2 / (2.0 * g1) if g1 else 0.0             # SWMM top width -> pipedream slope
+        return g1, m, 0.0, 0.0
+    if swmm_shape == "TRAPEZOIDAL":
+        return g1, g2, (g3 + g4) / 2.0, 0.0            # height, base, mean of the two bank slopes
+    if swmm_shape == "IRREGULAR":
+        raise NotImplementedError(
+            "IRREGULAR cross-sections need [TRANSECTS] + pipedream transects (not yet supported)")
+    raise ValueError(f"SWMM shape {swmm_shape!r} has no pipedream equivalent")
 
 
 @dataclass
@@ -157,14 +189,19 @@ def inp_to_pipedream(inp, manhole_area=1.0, pit_area=1.0, h_0=1e-5):
         for end in ("from_node", "to_node"):
             if c[end] not in name_to_id:
                 raise ValueError(f"conduit {link!r}: node {c[end]!r} is not a junction/outfall")
+        try:
+            g1, g2, g3, g4 = _shape_geometry(
+                shape_raw, _f(xs.loc[link, "geom1"]), _f(xs.loc[link, "geom2"]),
+                _f(xs.loc[link, "geom3"]), _f(xs.loc[link, "geom4"]))
+        except (ValueError, NotImplementedError) as e:
+            raise type(e)(f"conduit {link!r}: {e}") from None
         rows.append({
             "name": link, "id": i,
             "sj_0": name_to_id[c["from_node"]], "sj_1": name_to_id[c["to_node"]],
             "in_offset": _f(c["in_offset"]), "out_offset": _f(c["out_offset"]),
             "dx": _f(c["length"]), "n": _f(c["roughness"]),
             "shape": SHAPE_MAP[shape_raw],
-            "g1": _f(xs.loc[link, "geom1"]), "g2": _f(xs.loc[link, "geom2"]),
-            "g3": _f(xs.loc[link, "geom3"]), "g4": _f(xs.loc[link, "geom4"]),
+            "g1": g1, "g2": g2, "g3": g3, "g4": g4,
             "Q_0": _f(c["init_flow"]), "h_0": h_0,
             "ctrl": False, "A_s": float(pit_area), "A_c": 0.0, "C": 0.0,
         })
