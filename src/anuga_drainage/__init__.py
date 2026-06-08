@@ -8,3 +8,4 @@ from .coupler import (
     limit_outflow,
 )
 from .volume_balance import VolumeBalance, VolumeRecord
+from .inp import read_inp, inp_to_pipedream, InpNetwork
