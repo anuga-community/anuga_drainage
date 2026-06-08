@@ -38,7 +38,7 @@ swmm = ["pyswmm>=2.1"]
 pipedream = ["pipedream-solver @ git+https://github.com/mdbartos/pipedream.git"]
 test = ["pytest"]
 # Documentation (Sphinx + MyST), also pinned in docs/requirements.txt for RTD.
-docs = ["sphinx>=7", "myst-parser>=2", "sphinx-rtd-theme>=2"]
+docs = ["sphinx>=7", "myst-nb>=1", "sphinx-rtd-theme>=2"]
 
 [project.urls]
 "Homepage" = "https://github.com/anuga-community/anuga_drainage"

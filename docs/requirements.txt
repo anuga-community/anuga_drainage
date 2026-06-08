@@ -1,0 +1,4 @@
+# Documentation build dependencies (used by Read the Docs).
+sphinx>=7
+myst-nb>=1            # MyST Markdown + notebook rendering (pulls in myst-parser)
+sphinx-rtd-theme>=2

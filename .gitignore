@@ -11,6 +11,8 @@ __pycache__
 *.msh
 *.tsh
 *.txt
+# keep the RTD docs requirements tracked despite the *.txt rule above
+!docs/requirements.txt
 *.png
 examples/**/volume_balance.png
 docs/_build/

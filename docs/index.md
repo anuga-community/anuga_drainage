@@ -32,6 +32,7 @@ model the *same* sewer, and the volume audit confirms conservation.
 
 installation
 quickstart
+tutorial
 coupling
 diagnostics
 inp_format

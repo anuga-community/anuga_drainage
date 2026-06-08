@@ -101,6 +101,12 @@ The underlying structure each script follows (and what `Coupler` encapsulates) �
 - Mesh refinement (`rf`) must be fine enough that inlet polygons don't overlap walls/each other — comments in the scripts flag this.
 - **ANUGA API drift:** some examples were written against older ANUGA and need small fixes to run on a current build. Known: `create_domain_from_regions(...)` no longer accepts `mesh_filename` (the mesh is built in-memory — drop the kwarg). Expect similar minor signature changes when reviving older scripts.
 
+## Documentation
+
+Sphinx docs (MyST Markdown) live in `docs/`, published on Read the Docs via `.readthedocs.yaml` (installs the package + `docs/requirements.txt`; `conf.py` mocks `anuga`/`pyswmm`/`pipedream_solver` so autodoc imports — the package itself imports without ANUGA). Pages: index, installation, quickstart, **tutorial** (a notebook), coupling, diagnostics, inp_format, api (autodoc). Build locally with `pip install -e .[docs]` then `sphinx-build -b html docs docs/_build/html`.
+
+The tutorial is a **pre-executed Jupyter notebook** (`docs/tutorial.ipynb`) rendered by `myst-nb` with `nb_execution_mode = "off"` (RTD has no ANUGA, so it can't re-execute — it renders the committed outputs/plots). To regenerate it after API changes: `python docs/_make_tutorial.py` (rebuilds the cells), then `OMP_NUM_THREADS=4 jupyter nbconvert --to notebook --execute --inplace docs/tutorial.ipynb` (needs ANUGA+pipedream; **don't** set `MPLBACKEND=Agg` or the inline plots won't embed — the notebook uses `%matplotlib inline`).
+
 ## Examples directory map
 
 - `simple_culvert_example/` — canonical minimal channel + culvert; the best reference for the coupling pattern. Has `boyd`, `swmm` (short/long inp), and `pipedream` variants. A local copy of `coupling.py` lives here (the scripts now import from the installed package instead — see git history).
