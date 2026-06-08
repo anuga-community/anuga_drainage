@@ -161,6 +161,13 @@ class PipedreamBackend:
 
     # --- independent pipe-side volume accounting (for VolumeBalance) ---
     def pipe_volume(self):
+        # Physical water volume (flow-area conduit + pit + superjunction). This
+        # is exact, but pipedream's semi-implicit linearised continuity + the
+        # Preissmann slot don't conserve *physical* volume to machine precision
+        # during redistribution/surcharge, so VolumeBalance's R_pipe shows
+        # pipedream's own ~0.1-1% numerical non-conservation (cf. SWMM's larger
+        # finite-difference loss). That is the solver's behaviour, not a coupling
+        # error or a measurement bug to "correct" away. See CLAUDE.md.
         return self.sewer_volume()
 
     def coupling_inflow_volumes(self):
