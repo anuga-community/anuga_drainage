@@ -42,19 +42,17 @@ api
 
 ```python
 import anuga
-from anuga_drainage import couple_from_inp, VolumeBalance
+from anuga_drainage import couple_from_inp
 
 domain = ...                      # your ANUGA domain (mesh, elevation, boundaries)
 
 coupling = couple_from_inp(domain, 'network.inp', backend='pipedream',
                            manhole_area=1.0, time_average=10.0, clamp=True)
+coupling.add_volume_balance(inflow_operators=[my_inflow_op])   # optional audit
 
-vb = VolumeBalance(domain, coupling.inlets.values(), coupling.backend)
-
-prev = None
 for t in domain.evolve(yieldstep=1.0, finaltime=400.0):
-    vb.step(t, 1.0, prev)
-    prev = coupling.coupler.step(1.0)
+    coupling.step(1.0)            # exchange + (if attached) volume audit
 
-print(vb.summary())               # ANUGA / pipe / coupling residuals
+print(coupling.volume_balance.summary())   # ANUGA / pipe / coupling residuals
+coupling.close()                  # closes the SWMM sim; no-op for pipedream
 ```

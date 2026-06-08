@@ -121,6 +121,10 @@ class SwmmBackend:
         """Cumulative volume that has left the network at outfalls."""
         return self._outfall_vol
 
+    def close(self):
+        """Close the SWMM simulation."""
+        self.sim.close()
+
 
 class PipedreamBackend:
     """Coupling backend for pipedream's SuperLink.
@@ -213,6 +217,9 @@ class PipedreamBackend:
     def outfall_volume(self):
         """Cumulative volume shed at outfall (bc) superjunctions (0 if none)."""
         return self._outfall_vol
+
+    def close(self):
+        """No external resources to release for pipedream."""
 
 
 class Coupler:

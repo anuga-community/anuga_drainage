@@ -26,11 +26,16 @@ coupling = couple_from_inp(
 `couple_from_inp` returns a {class}`~anuga_drainage.Coupling`:
 
 ```python
-coupling.coupler     # the Coupler that drives the per-step exchange
+coupling.step(dt)            # run one coupled exchange step
+coupling.close()             # release the backend (closes the SWMM sim; no-op otherwise)
+coupling.add_volume_balance(...)   # attach a mass-balance audit (see Diagnostics)
+
+coupling.coupler     # the underlying Coupler
 coupling.inlets      # {junction name -> ANUGA Inlet_operator}
 coupling.backend     # SwmmBackend / PipedreamBackend
 coupling.handle      # the pyswmm Simulation or pipedream SuperLink
 coupling.inp         # the parsed InpNetwork
+coupling.domain      # the ANUGA domain
 ```
 
 ## The evolve loop
@@ -38,14 +43,13 @@ coupling.inp         # the parsed InpNetwork
 ```python
 dt = 1.0
 for t in domain.evolve(yieldstep=dt, finaltime=400.0):
-    coupling.coupler.step(dt)        # read 2D state -> exchange flux -> step 1D -> feed back
+    coupling.step(dt)        # read 2D state -> exchange flux -> step 1D -> feed back
 
-if coupling.handle and coupling.backend.__class__.__name__ == 'SwmmBackend':
-    coupling.handle.close()          # close the SWMM simulation
+coupling.close()             # closes the SWMM simulation; no-op for pipedream
 ```
 
 That's the whole coupled model: build the ANUGA domain, call `couple_from_inp`,
-step the coupler inside `domain.evolve`.
+and `coupling.step(dt)` inside `domain.evolve`.
 
 ## What it does under the hood
 

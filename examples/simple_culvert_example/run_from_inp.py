@@ -28,7 +28,7 @@ import sys
 import numpy as np
 import anuga
 
-from anuga_drainage import couple_from_inp, VolumeBalance
+from anuga_drainage import couple_from_inp
 
 backend = sys.argv[1] if len(sys.argv) > 1 else 'swmm'
 
@@ -69,22 +69,17 @@ coupling = couple_from_inp(domain, './swmm_input_short.inp', backend=backend,
 print(f'Coupled {len(coupling.inlets)} junctions from the .inp: '
       f'{list(coupling.inlets)}  (backend={backend})')
 
-vb = VolumeBalance(domain, coupling_inlets=list(coupling.inlets.values()),
-                   backend=coupling.backend, inflow_operators=[inflow_op])
+coupling.add_volume_balance(inflow_operators=[inflow_op])
 
 #------------------------------------------------------------------------------
-# Evolve loop — audit at the top with the previous step, then exchange
+# Evolve loop — coupling.step() runs the exchange and the volume audit
 #------------------------------------------------------------------------------
-prev_step = None
 for t in domain.evolve(yieldstep=dt, outputstep=10.0, finaltime=400.0):
-    vb.step(t, dt, prev_step)
-    prev_step = coupling.coupler.step(dt)
+    coupling.step(dt)
     if domain.yieldstep_counter % 50 == 0:
         domain.print_timestepping_statistics()
 
 print()
-print(vb.summary())
-vb.plot('volume_balance.png')
-
-if backend == 'swmm':
-    coupling.handle.close()
+print(coupling.volume_balance.summary())
+coupling.volume_balance.plot('volume_balance.png')
+coupling.close()

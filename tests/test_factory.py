@@ -104,8 +104,11 @@ def test_couple_from_inp_pipedream(inp_path):
     assert len(c.coupler.inlets) == 2
     assert c.backend.H_bc is not None              # outfall is a free-drainage boundary
 
+    c.add_volume_balance()                         # audit runs inside c.step()
     last = None
     for t in domain.evolve(yieldstep=1.0, finaltime=2.0):
-        last = c.coupler.step(1.0)
+        last = c.step(1.0)                          # one call: exchange + audit
     assert last.Q_in.shape == (2,)
     assert np.isfinite(last.Q_in).all()
+    assert len(c.volume_balance.records) >= 1      # the audit recorded steps
+    c.close()                                      # no-op for pipedream, but must not raise

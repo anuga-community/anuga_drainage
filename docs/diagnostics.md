@@ -37,27 +37,42 @@ loss = R_anuga + R_pipe + R_couple
 
 ## Usage
 
+The easiest path, if you built the model with
+{func}`~anuga_drainage.couple_from_inp`, is to attach the audit to the coupling
+— `coupling.step()` then records it for you with the correct timing:
+
 ```python
-from anuga_drainage import VolumeBalance
+coupling.add_volume_balance(inflow_operators=[my_inflow_op])
 
-vb = VolumeBalance(domain, coupling.inlets.values(), coupling.backend,
-                   inflow_operators=[my_inflow_op])
-
-prev = None
 for t in domain.evolve(yieldstep=dt, finaltime=ft):
-    vb.step(t, dt, prev)          # call at the TOP of the loop, previous step
-    prev = coupling.coupler.step(dt)
+    coupling.step(dt)             # exchange + audit
 
+vb = coupling.volume_balance
 print(vb.summary())               # text report of the final-step budget
 df = vb.to_dataframe()            # the full time series
 vb.plot('volume_balance.png')     # components + residuals vs time
 ```
 
+If you drive the `Coupler` yourself, use {class}`~anuga_drainage.VolumeBalance`
+directly — but mind the timing:
+
+```python
+from anuga_drainage import VolumeBalance
+
+vb = VolumeBalance(domain, coupling.inlets.values(), coupling.backend,
+                   inflow_operators=[my_inflow_op])
+prev = None
+for t in domain.evolve(yieldstep=dt, finaltime=ft):
+    vb.step(t, dt, prev)          # call at the TOP of the loop, previous step
+    prev = coupling.coupler.step(dt)
+```
+
 ```{admonition} Timing matters
 :class: warning
-Call `vb.step()` at the **top** of the loop, passing the **previous** step's
-`CouplingStep`. Reading at the bottom misaligns ANUGA's applied volume (applied
-on the next evolve) from the SWMM statistics by one step.
+`vb.step()` must be called at the **top** of the loop, passing the **previous**
+step's `CouplingStep` — which is exactly what `coupling.step()` does internally.
+Reading at the bottom misaligns ANUGA's applied volume (applied on the next
+evolve) from the SWMM statistics by one step.
 ```
 
 ## Per-inlet breakdown

@@ -7,7 +7,7 @@ auto-creates the ANUGA inlet operators at each junction, and returns a ready
 run the evolve loop". The junctions are coupled to the surface; outfalls are
 treated as boundaries (free drainage for pipedream; SWMM handles its own).
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -18,14 +18,52 @@ from .coupler import Coupler, SwmmBackend, PipedreamBackend
 
 @dataclass
 class Coupling:
-    """Result of :func:`couple_from_inp`: a ready ``Coupler`` plus the handles a
-    run loop needs (the inlet operators by name, the backend, and the underlying
-    SWMM ``Simulation`` / pipedream ``SuperLink``)."""
+    """Result of :func:`couple_from_inp` — a ready coupling you drive directly.
+
+    Drive the loop with :meth:`step`, optionally attach a volume audit with
+    :meth:`add_volume_balance`, and release the backend with :meth:`close`::
+
+        coupling = couple_from_inp(domain, 'net.inp', backend='pipedream')
+        coupling.add_volume_balance(inflow_operators=[my_inflow_op])
+        for t in domain.evolve(yieldstep=dt, finaltime=ft):
+            coupling.step(dt)
+        print(coupling.volume_balance.summary())
+        coupling.close()
+
+    The components are also exposed directly: ``coupler``, ``inlets``
+    (name → ANUGA ``Inlet_operator``), ``backend``, ``handle`` (the pyswmm
+    ``Simulation`` / pipedream ``SuperLink``), ``inp`` and ``domain``.
+    """
     coupler: object
     inlets: dict          # junction name -> ANUGA Inlet_operator
     backend: object       # SwmmBackend / PipedreamBackend
     handle: object        # pyswmm Simulation (swmm) or pipedream SuperLink
     inp: object           # parsed InpNetwork
+    domain: object        # the ANUGA domain
+    volume_balance: object = None
+    _prev_step: object = field(default=None, init=False, repr=False)
+
+    def step(self, dt):
+        """Run one coupled exchange step; if a VolumeBalance is attached, record
+        it first (at the loop top, with the previous step, so the reads align)."""
+        if self.volume_balance is not None:
+            self.volume_balance.step(self.domain.get_time(), dt, self._prev_step)
+        self._prev_step = self.coupler.step(dt)
+        return self._prev_step
+
+    def add_volume_balance(self, inflow_operators=(), outfall_inlet=None):
+        """Attach a :class:`~anuga_drainage.VolumeBalance`; subsequent
+        :meth:`step` calls update it. Returns the VolumeBalance."""
+        from .volume_balance import VolumeBalance
+        self.volume_balance = VolumeBalance(
+            self.domain, list(self.inlets.values()), self.backend,
+            inflow_operators=inflow_operators, outfall_inlet=outfall_inlet)
+        return self.volume_balance
+
+    def close(self):
+        """Release backend resources (closes the SWMM simulation; no-op for
+        pipedream)."""
+        self.backend.close()
 
 
 def _as_array(x, n):
@@ -51,7 +89,10 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
     internal_links, pit_area, superlink_kwargs : pipedream-only (discretisation,
         internal-junction storage, extra ``SuperLink`` kwargs).
 
-    Returns a :class:`Coupling`.
+    Returns
+    -------
+    Coupling
+        A ready coupling (see :class:`Coupling`).
     """
     from anuga import Inlet_operator, Region   # lazy: pure callers don't need ANUGA
 
@@ -104,4 +145,4 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
                       manhole_areas=areas, backend=be,
                       time_average=time_average, clamp=clamp, cw=cw, co=co)
     return Coupling(coupler=coupler, inlets=dict(zip(jnames, inlets)),
-                    backend=be, handle=handle, inp=inp)
+                    backend=be, handle=handle, inp=inp, domain=domain)

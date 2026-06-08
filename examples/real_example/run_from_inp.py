@@ -17,7 +17,7 @@ import anuga
 from anuga import create_domain_from_regions, Inlet_operator, Region
 import anuga.utilities.spatialInputUtil as su
 
-from anuga_drainage import couple_from_inp, VolumeBalance
+from anuga_drainage import couple_from_inp
 
 backend = sys.argv[1] if len(sys.argv) > 1 else 'swmm'
 dt, ft, input_rate = 1.0, 100.0, 0.102
@@ -66,21 +66,16 @@ coupling = couple_from_inp(domain, inp_name, backend=backend,
 print(f'Coupled {len(coupling.inlets)} junctions from {inp_name}: '
       f'{list(coupling.inlets)}  (backend={backend})')
 
-vb = VolumeBalance(domain, coupling_inlets=list(coupling.inlets.values()),
-                   backend=coupling.backend, inflow_operators=[input1_op])
+coupling.add_volume_balance(inflow_operators=[input1_op])
 
 #------------------------------------------------------------------------------
-# Evolve loop
+# Evolve loop — coupling.step() runs the exchange and the volume audit
 #------------------------------------------------------------------------------
-prev_step = None
 for t in domain.evolve(yieldstep=dt, finaltime=ft):
-    vb.step(t, dt, prev_step)
-    prev_step = coupling.coupler.step(dt)
+    coupling.step(dt)
     if domain.yieldstep_counter % 10 == 0:
         domain.print_timestepping_statistics()
 
 print()
-print(vb.summary())
-
-if backend == 'swmm':
-    coupling.handle.close()
+print(coupling.volume_balance.summary())
+coupling.close()
