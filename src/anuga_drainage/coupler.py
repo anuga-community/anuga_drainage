@@ -149,8 +149,12 @@ class PipedreamBackend:
         return (s._A_ik * s._dx_ik).sum() + (s._A_SIk * s._h_Ik).sum()
 
     def node_volume(self):
-        s = self.superlink
-        return (s._A_sj * (s.H_j - s._z_inv_j)).sum()
+        # Use pipedream's own storage-curve volume: it honours the functional/
+        # tabular storage curves and clamps depth at min_depth, matching how
+        # pipedream conserves mass. The linear A_sj*(H_j - z_inv_j) goes negative
+        # when a superjunction's head drops below its invert (common upstream),
+        # which otherwise shows up as a spurious R_pipe.
+        return float(self.superlink.compute_storage_volumes().sum())
 
     def sewer_volume(self):
         return self.link_volume() + self.node_volume()

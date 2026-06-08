@@ -191,7 +191,8 @@ coupler = Coupler(inlets=[inlet1_anuga_inlet_op, inlet2_anuga_inlet_op,
                   weir_lengths=np.full(5, 2*np.pi*radius),
                   manhole_areas=np.full(5, np.pi*radius**2),
                   backend=PipedreamBackend(superlink),
-                  time_average=time_average)
+                  time_average=time_average,
+                  clamp=True)   # cap each draw at the water available in the 2D cell
 
 # Per-component + per-inlet water-volume audit (pipedream is finite-volume, so
 # R_pipe should be ~0).
