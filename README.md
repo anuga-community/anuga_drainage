@@ -1,5 +1,7 @@
 # anuga_drainage — coupling ANUGA to SWMM and pipedream
 
+[![Documentation Status](https://readthedocs.org/projects/anuga-drainage/badge/?version=latest)](https://anuga-drainage.readthedocs.io/en/latest/?badge=latest)
+
 Couples the 2D hydrodynamic shallow-water model **ANUGA** (overland / surface
 flow) with a 1D stormwater / sewer network solver — **SWMM** (via `pyswmm`) or
 **pipedream** (via `pipedream_solver`). The 2D model handles the surface, the 1D
