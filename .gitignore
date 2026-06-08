@@ -13,3 +13,4 @@ __pycache__
 *.txt
 *.png
 examples/**/volume_balance.png
+docs/_build/
