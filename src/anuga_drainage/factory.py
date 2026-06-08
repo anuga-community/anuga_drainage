@@ -90,9 +90,12 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
         sj, sl = inp_to_pipedream(inp, manhole_area=float(areas[0]), pit_area=pit_area)
         superlink = SuperLink(sl, sj, internal_links=internal_links,
                               **(superlink_kwargs or {}))
-        coupled = list(range(len(jnames)))                 # junctions are listed first
-        H_bc = superlink._z_inv_j.copy() if len(inp.outfalls) else None  # free-drain outfalls
-        be = PipedreamBackend(superlink, coupled_indices=coupled, H_bc=H_bc)
+        n_j = len(jnames)
+        coupled = list(range(n_j))                          # junctions are listed first
+        outfalls = list(range(n_j, n_j + len(inp.outfalls)))  # outfalls follow them
+        H_bc = superlink._z_inv_j.copy() if outfalls else None  # free-drain outfalls
+        be = PipedreamBackend(superlink, coupled_indices=coupled, H_bc=H_bc,
+                              outfall_indices=outfalls)
         handle = superlink
     else:
         raise ValueError(f"backend must be 'swmm' or 'pipedream', got {backend!r}")

@@ -129,18 +129,30 @@ class PipedreamBackend:
     realised, so the flow fed back to ANUGA is -Q_in.
     """
 
-    def __init__(self, superlink, coupled_indices=None, H_bc=None):
+    def __init__(self, superlink, coupled_indices=None, H_bc=None, outfall_indices=None):
         # coupled_indices: which superjunctions exchange with ANUGA (default all,
         #   matching the hand-built examples). couple_from_inp couples only the
         #   junctions and lists the outfalls as boundary (bc) superjunctions.
         # H_bc: fixed boundary heads for bc superjunctions (e.g. outfall inverts
         #   for free drainage); None keeps the previous no-bc behaviour exactly.
+        # outfall_indices: bc superjunctions that shed water out of the system,
+        #   for outfall_volume tracking.
         self.superlink = superlink
         n = len(superlink.H_j)
         self.coupled = (np.arange(n) if coupled_indices is None
                         else np.asarray(coupled_indices, dtype=int))
         self.H_bc = None if H_bc is None else np.asarray(H_bc, dtype=float)
         self._injected = None   # per-coupled-junction cumulative injected volume
+        # Superlink ends discharging at an outfall: Q_dk is the flow into a
+        # superlink's downstream superjunction, Q_uk the flow out of its upstream
+        # one — so outfall outflow = sum(Q_dk at outfall d/s ends) - sum(Q_uk at
+        # outfall u/s ends), accumulated over time.
+        outs = set() if outfall_indices is None else {int(i) for i in outfall_indices}
+        self._outfall_dk = [k for k in range(len(superlink._J_dk))
+                            if int(superlink._J_dk[k]) in outs]
+        self._outfall_uk = [k for k in range(len(superlink._J_uk))
+                            if int(superlink._J_uk[k]) in outs]
+        self._outfall_vol = 0.0
 
     def get_heads(self):
         return self.superlink.H_j[self.coupled]
@@ -154,6 +166,11 @@ class PipedreamBackend:
             self.superlink.step(Q_in=full, dt=dt)
         else:
             self.superlink.step(Q_in=full, H_bc=self.H_bc, dt=dt)
+        if self._outfall_dk or self._outfall_uk:
+            s = self.superlink
+            out = (sum(float(s.Q_dk[k]) for k in self._outfall_dk)
+                   - sum(float(s.Q_uk[k]) for k in self._outfall_uk))
+            self._outfall_vol += out * dt
 
     def anuga_flux(self, Q_in, dt):
         return -np.asarray(Q_in)
@@ -194,8 +211,8 @@ class PipedreamBackend:
         return 0.0 if self._injected is None else float(self._injected.sum())
 
     def outfall_volume(self):
-        """pipedream's closed networks have no outfall sink here."""
-        return 0.0
+        """Cumulative volume shed at outfall (bc) superjunctions (0 if none)."""
+        return self._outfall_vol
 
 
 class Coupler:

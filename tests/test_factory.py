@@ -54,6 +54,26 @@ def test_pipedream_backend_couples_subset_and_holds_bc(inp_path):
     assert list(be.coupling_inflow_volumes()) == pytest.approx([0.05, 0.0])
 
 
+def test_pipedream_backend_tracks_outfall_volume(inp_path):
+    # outfall_volume should capture the flow shed at the bc outfall, so the pipe
+    # budget closes: dV_pipe ~ injected - outfall (to pipedream's own residual).
+    SuperLink = pytest.importorskip("pipedream_solver.hydraulics").SuperLink
+    inp = read_inp(inp_path)
+    sj, sl = inp_to_pipedream(inp)
+    s = SuperLink(sl, sj, internal_links=4)
+    njunc, noutfall = len(inp.junctions), len(inp.outfalls)
+    be = PipedreamBackend(s, coupled_indices=range(njunc), H_bc=s._z_inv_j.copy(),
+                          outfall_indices=range(njunc, njunc + noutfall))
+    v0 = be.pipe_volume()
+    injected = 0.0
+    for _ in range(60):
+        be.step(np.array([0.2, 0.0]), dt=1.0)
+        injected += 0.2
+    r_pipe = (be.pipe_volume() - v0) - (injected - be.outfall_volume())
+    assert be.outfall_volume() > 5.0                 # water really left at the outfall
+    assert abs(r_pipe) < 0.05 * injected             # pipe budget closes (pipedream residual)
+
+
 def test_pipedream_backend_default_is_all_coupled_no_bc(inp_path):
     # Backwards compatibility: no coupled_indices/H_bc -> couple every
     # superjunction and never pass H_bc (matches the hand-built examples).
