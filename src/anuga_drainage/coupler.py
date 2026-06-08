@@ -129,17 +129,31 @@ class PipedreamBackend:
     realised, so the flow fed back to ANUGA is -Q_in.
     """
 
-    def __init__(self, superlink):
+    def __init__(self, superlink, coupled_indices=None, H_bc=None):
+        # coupled_indices: which superjunctions exchange with ANUGA (default all,
+        #   matching the hand-built examples). couple_from_inp couples only the
+        #   junctions and lists the outfalls as boundary (bc) superjunctions.
+        # H_bc: fixed boundary heads for bc superjunctions (e.g. outfall inverts
+        #   for free drainage); None keeps the previous no-bc behaviour exactly.
         self.superlink = superlink
-        self._injected = None   # per-junction cumulative injected volume
+        n = len(superlink.H_j)
+        self.coupled = (np.arange(n) if coupled_indices is None
+                        else np.asarray(coupled_indices, dtype=int))
+        self.H_bc = None if H_bc is None else np.asarray(H_bc, dtype=float)
+        self._injected = None   # per-coupled-junction cumulative injected volume
 
     def get_heads(self):
-        return self.superlink.H_j
+        return self.superlink.H_j[self.coupled]
 
     def step(self, Q_in, dt):
-        q = np.asarray(Q_in, dtype=float) * dt
-        self._injected = q if self._injected is None else self._injected + q
-        self.superlink.step(Q_in=Q_in, dt=dt)
+        q = np.asarray(Q_in, dtype=float)
+        full = np.zeros(len(self.superlink.H_j))
+        full[self.coupled] = q
+        self._injected = q * dt if self._injected is None else self._injected + q * dt
+        if self.H_bc is None:
+            self.superlink.step(Q_in=full, dt=dt)
+        else:
+            self.superlink.step(Q_in=full, H_bc=self.H_bc, dt=dt)
 
     def anuga_flux(self, Q_in, dt):
         return -np.asarray(Q_in)
