@@ -71,10 +71,25 @@ def _as_array(x, n):
     return np.full(n, a[0]) if a.size == 1 else a
 
 
+def _polygon_area(p):
+    """Shoelace area of a polygon given as a list of ``[x, y]`` vertices."""
+    a = np.asarray(p, dtype=float)
+    x, y = a[:, 0], a[:, 1]
+    return 0.5 * abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+
+
+def _polygon_perimeter(p):
+    """Perimeter of a closed polygon given as a list of ``[x, y]`` vertices."""
+    a = np.asarray(p, dtype=float)
+    d = a - np.roll(a, 1, axis=0)
+    return float(np.sum(np.hypot(d[:, 0], d[:, 1])))
+
+
 def couple_from_inp(domain, inp_path, backend="swmm", *,
-                    manhole_area=1.0, n_sides=6, rotation=0.0,
+                    manhole_area=1.0, n_sides=6, rotation=0.0, inlet_polygons=None,
                     time_average=1.0, clamp=True, cw=0.67, co=0.67,
-                    internal_links=20, pit_area=1.0, superlink_kwargs=None):
+                    internal_links=20, pit_area=1.0, pipedream_max_step=None,
+                    superlink_kwargs=None):
     """Build a ready :class:`~anuga_drainage.Coupler` from a SWMM ``.inp``.
 
     Parameters
@@ -84,10 +99,25 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
     backend : ``"swmm"`` (pyswmm) or ``"pipedream"``.
     manhole_area : surface area of each inlet coupling region (scalar or one per
         junction); also used as the pipedream superjunction storage area.
-    n_sides, rotation : geometry of the regular-polygon inlet regions.
+    n_sides, rotation : geometry of the regular-polygon inlet regions (used for
+        any junction not overridden by ``inlet_polygons``).
+    inlet_polygons : optional ``{junction_name: [[x, y], ...]}`` to give specific
+        inlets an explicit footprint instead of the auto regular polygon — needed
+        when an inlet must **span a channel** (the ``.inp`` only carries a point,
+        so the auto polygon can be too narrow and flow overtops past it). The
+        coupling region's area and perimeter become that junction's
+        ``manhole_area`` and ``weir_length``.
     time_average, clamp, cw, co : forwarded to the ``Coupler``.
     internal_links, pit_area, superlink_kwargs : pipedream-only (discretisation,
         internal-junction storage, extra ``SuperLink`` kwargs).
+    pipedream_max_step : pipedream-only cap on the solver's *internal* hydraulic
+        timestep (s). The coupling ``dt`` (ANUGA yieldstep / exchange frequency)
+        can stay coarse — e.g. 1 s — while each pipedream step is subdivided into
+        ``ceil(dt/pipedream_max_step)`` sub-steps, which the semi-implicit solver
+        needs for stability. ``None`` steps once at ``dt`` (was unstable at 1 s).
+        The more ``internal_links``, the shorter each sub-conduit, so the smaller
+        this must be (CFL): the default 20 links needs a finer step than the
+        hand-built run_pipedream.py's 6 links @ 0.05 s.
 
     Returns
     -------
@@ -101,22 +131,42 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
     if not jnames:
         raise ValueError(f"{inp_path}: no [JUNCTIONS] to couple")
     coords = inp.coordinates.set_index("node")
-    areas = _as_array(manhole_area, len(jnames))
+    areas_in = _as_array(manhole_area, len(jnames))
+    inlet_polygons = inlet_polygons or {}
+    unknown = set(inlet_polygons) - set(jnames)
+    if unknown:
+        raise ValueError(f"inlet_polygons names not in [JUNCTIONS]: {sorted(unknown)}")
 
     # --- ANUGA inlet operators at each junction (backend-agnostic) ---
-    inlets, beds, weir_lengths = [], [], []
-    for name, area in zip(jnames, areas):
-        if name not in coords.index:
-            raise ValueError(f"junction {name!r} has no [COORDINATES] entry")
-        xy = [float(coords.loc[name, "x"]), float(coords.loc[name, "y"])]
-        vertices, side = n_sided_inlet(n_sides, float(area), xy, rotation)
-        op = Inlet_operator(domain, Region(domain, polygon=vertices, expand_polygon=True),
+    # A custom polygon overrides the auto regular polygon; its area/perimeter
+    # become that junction's manhole_area/weir_length.
+    inlets, beds, weir_lengths, areas = [], [], [], []
+    for name, area in zip(jnames, areas_in):
+        if name in inlet_polygons:
+            vertices = [[float(x), float(y)] for x, y in inlet_polygons[name]]
+            eff_area = _polygon_area(vertices)
+            weir = _polygon_perimeter(vertices)
+            # Honour the given footprint exactly: don't expand it across nearby
+            # steep terrain (e.g. a channel bank), or returned surcharge gets
+            # distributed onto those high cells and strands as a thin film.
+            expand = False
+        else:
+            if name not in coords.index:
+                raise ValueError(f"junction {name!r} has no [COORDINATES] entry")
+            xy = [float(coords.loc[name, "x"]), float(coords.loc[name, "y"])]
+            vertices, side = n_sided_inlet(n_sides, float(area), xy, rotation)
+            eff_area = float(area)
+            weir = n_sides * side
+            expand = True   # a small auto polygon may not contain a cell centroid
+        op = Inlet_operator(domain, Region(domain, polygon=vertices, expand_polygon=expand),
                             Q=0.0, zero_velocity=True)
         inlets.append(op)
         beds.append(op.inlet.get_average_elevation())
-        weir_lengths.append(n_sides * side)
+        weir_lengths.append(weir)
+        areas.append(eff_area)
     beds = np.array(beds)
     weir_lengths = np.array(weir_lengths)
+    areas = np.array(areas)
 
     # --- 1D backend, junctions ordered to match the inlets ---
     if backend == "swmm":
@@ -136,7 +186,7 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
         outfalls = list(range(n_j, n_j + len(inp.outfalls)))  # outfalls follow them
         H_bc = superlink._z_inv_j.copy() if outfalls else None  # free-drain outfalls
         be = PipedreamBackend(superlink, coupled_indices=coupled, H_bc=H_bc,
-                              outfall_indices=outfalls)
+                              outfall_indices=outfalls, max_step=pipedream_max_step)
         handle = superlink
     else:
         raise ValueError(f"backend must be 'swmm' or 'pipedream', got {backend!r}")

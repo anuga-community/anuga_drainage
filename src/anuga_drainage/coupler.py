@@ -133,7 +133,8 @@ class PipedreamBackend:
     realised, so the flow fed back to ANUGA is -Q_in.
     """
 
-    def __init__(self, superlink, coupled_indices=None, H_bc=None, outfall_indices=None):
+    def __init__(self, superlink, coupled_indices=None, H_bc=None, outfall_indices=None,
+                 max_step=None):
         # coupled_indices: which superjunctions exchange with ANUGA (default all,
         #   matching the hand-built examples). couple_from_inp couples only the
         #   junctions and lists the outfalls as boundary (bc) superjunctions.
@@ -141,7 +142,13 @@ class PipedreamBackend:
         #   for free drainage); None keeps the previous no-bc behaviour exactly.
         # outfall_indices: bc superjunctions that shed water out of the system,
         #   for outfall_volume tracking.
+        # max_step: cap on pipedream's *internal* hydraulic timestep. The coupling
+        #   dt (ANUGA yieldstep / exchange frequency) can stay coarse (e.g. 1 s),
+        #   but pipedream's semi-implicit solver is only stable at a small step, so
+        #   each step(dt) is subdivided into ceil(dt/max_step) sub-steps of the
+        #   same Q_in. None (default) steps once at dt, preserving prior behaviour.
         self.superlink = superlink
+        self.max_step = max_step
         n = len(superlink.H_j)
         self.coupled = (np.arange(n) if coupled_indices is None
                         else np.asarray(coupled_indices, dtype=int))
@@ -166,15 +173,20 @@ class PipedreamBackend:
         full = np.zeros(len(self.superlink.H_j))
         full[self.coupled] = q
         self._injected = q * dt if self._injected is None else self._injected + q * dt
-        if self.H_bc is None:
-            self.superlink.step(Q_in=full, dt=dt)
-        else:
-            self.superlink.step(Q_in=full, H_bc=self.H_bc, dt=dt)
-        if self._outfall_dk or self._outfall_uk:
-            s = self.superlink
-            out = (sum(float(s.Q_dk[k]) for k in self._outfall_dk)
-                   - sum(float(s.Q_uk[k]) for k in self._outfall_uk))
-            self._outfall_vol += out * dt
+        # Refine pipedream's internal step without changing the exchange frequency:
+        # hold Q_in fixed over dt and advance the solver in <= max_step sub-steps.
+        nsub = 1 if not self.max_step else max(1, int(np.ceil(dt / self.max_step)))
+        sub_dt = dt / nsub
+        for _ in range(nsub):
+            if self.H_bc is None:
+                self.superlink.step(Q_in=full, dt=sub_dt)
+            else:
+                self.superlink.step(Q_in=full, H_bc=self.H_bc, dt=sub_dt)
+            if self._outfall_dk or self._outfall_uk:
+                s = self.superlink
+                out = (sum(float(s.Q_dk[k]) for k in self._outfall_dk)
+                       - sum(float(s.Q_uk[k]) for k in self._outfall_uk))
+                self._outfall_vol += out * sub_dt
 
     def anuga_flux(self, Q_in, dt):
         return -np.asarray(Q_in)

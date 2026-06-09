@@ -13,15 +13,19 @@ Note: couple_from_inp couples the [JUNCTIONS] (Inlet, Outlet) and treats the
 Outfall as a free-drainage boundary, so here water *leaves* at the outfall
 (rather than being returned to the surface as in run_swmm_short.py).
 
-The VolumeBalance audit is the point: for *both* backends R_anuga and R_couple
-stay ~1e-13 (ANUGA conserves; the coupling conserves) and the loss is isolated
-to R_pipe — SWMM's finite-difference loss (~0.01 m^3) and pipedream's ~0.3%
-surcharge residual (~0.6 m^3). Two things make the pipedream comparison clean:
-the culvert is RECT_CLOSED (a box culvert surcharges via pipedream's Preissmann
-slot, conserving), and inp_to_pipedream leaves the superjunctions uncapped
-(max_depth=inf) so surcharge is pushed back to the 2D surface by the coupling
-rather than silently lost at the node cap (pipedream has no flooding model, so
-honouring the .inp MaxDepth would drop the surcharge).
+The VolumeBalance audit is the point: for *both* backends R_anuga stays ~1e-13
+(ANUGA conserves) and R_couple is tiny (the coupling conserves) — the loss is
+isolated to R_pipe: SWMM's finite-difference loss (~0.08 m^3) and pipedream's
+own linearisation/surcharge residual (~3 m^3 at a 0.01 s inner step; shrinks
+toward a ~3 m^3 floor as the inner step tightens). Three things make the
+pipedream comparison work: the culvert is RECT_CLOSED (a box culvert surcharges
+via pipedream's Preissmann slot, conserving); inp_to_pipedream leaves the
+superjunctions uncapped (max_depth=inf) so surcharge is pushed back to the 2D
+surface by the coupling rather than silently lost at the node cap (pipedream has
+no flooding model, so honouring the .inp MaxDepth would drop the surcharge); and
+pipedream is sub-stepped internally (pipedream_max_step=0.01) — its semi-implicit
+solver is unstable at the 1 s coupling step, so the exchange stays at 1 s while
+the 1D integration is refined (the more internal_links, the smaller this must be).
 """
 import sys
 
@@ -64,8 +68,22 @@ domain.set_boundary({'left': Bd, 'bottom': Br, 'top': Br, 'right': Br})
 # Sewer network + coupling inlets, straight from the .inp
 #------------------------------------------------------------------------------
 dt = 1.0
+# The .inp only carries a point per junction, so the auto inlet polygon can be
+# too narrow for a channel — flow then overtops the embankment instead of being
+# captured into the culvert. Give the inlet/outlet a footprint that spans the
+# channel (y 6..14), matching the hand-coded run_swmm_short.py regions.
+# pipedream's semi-implicit solver is only stable at a small internal step, so
+# keep the 1 s coupling/yield step but subdivide pipedream into 0.01 s sub-steps
+# (cf. the hand-built run_pipedream.py: internal_links=6 @ dt=0.05; a smaller
+# step shrinks pipedream's own linearisation R_pipe ~linearly). These two kwargs
+# are ignored by the swmm backend, which routes at its own .inp ROUTING_STEP.
 coupling = couple_from_inp(domain, './swmm_input_short.inp', backend=backend,
-                           manhole_area=16.0, time_average=10.0, clamp=True)
+                           inlet_polygons={
+                               'Inlet':  [[20, 6], [22, 6], [22, 14], [20, 14]],
+                               'Outlet': [[8, 6], [10, 6], [10, 14], [8, 14]],
+                           },
+                           time_average=10.0, clamp=True,
+                           internal_links=6, pipedream_max_step=0.01)
 print(f'Coupled {len(coupling.inlets)} junctions from the .inp: '
       f'{list(coupling.inlets)}  (backend={backend})')
 
