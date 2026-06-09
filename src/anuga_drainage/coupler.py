@@ -83,6 +83,20 @@ class SwmmBackend:
     def get_heads(self):
         return np.array([n.head for n in self.junctions])
 
+    # --- generic 1D-network state (same signature on both backends, so a run
+    #     script can record/plot the pipe network without knowing the backend) ---
+    def node_depths(self):
+        """Water depth above the invert at each coupled node."""
+        return np.array([n.depth for n in self.junctions])
+
+    def conduit_names(self):
+        """Name of each conduit (parallel to conduit_flows())."""
+        return [link.linkid for link in self.links]
+
+    def conduit_flows(self):
+        """Flow in each conduit."""
+        return np.array([link.flow for link in self.links])
+
     def step(self, Q_in, dt):
         for node, q in zip(self.junctions, Q_in):
             node.generated_inflow(q)
@@ -167,6 +181,21 @@ class PipedreamBackend:
 
     def get_heads(self):
         return self.superlink.H_j[self.coupled]
+
+    # --- generic 1D-network state (mirrors SwmmBackend, so run scripts can
+    #     record/plot the pipe network without knowing the backend) ---
+    def node_depths(self):
+        """Water depth above the invert at each coupled superjunction (>= 0)."""
+        s = self.superlink
+        return np.maximum(0.0, np.asarray(s.H_j[self.coupled] - s._z_inv_j[self.coupled]))
+
+    def conduit_names(self):
+        """Name of each conduit/superlink (parallel to conduit_flows())."""
+        return list(self.superlink.superlinks["name"])
+
+    def conduit_flows(self):
+        """Flow in each conduit (the superlink upstream-end flow Q_uk)."""
+        return np.asarray(self.superlink.Q_uk)
 
     def step(self, Q_in, dt):
         q = np.asarray(Q_in, dtype=float)
