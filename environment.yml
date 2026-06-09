@@ -21,7 +21,12 @@ channels:
 dependencies:
   - python=3.12
   - anuga=3.3.7
-  - pandas
+  # pandas<3: pipedream crashes under pandas 3.0's Copy-on-Write (its numba
+  # storage kernels reject the now read-only `.values` bool mask). Pinned at the
+  # conda level so the solver resolves pandas 2.x up front, rather than conda
+  # pulling pandas 3 and pip having to downgrade it (matches the `pandas<3` pin
+  # in pyproject.toml's pipedream extra). See CLAUDE.md.
+  - pandas<3
   - matplotlib
   - pip
   - pip:

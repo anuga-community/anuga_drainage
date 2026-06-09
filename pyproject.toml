@@ -35,7 +35,19 @@ swmm = ["pyswmm>=2.1"]
 # pipedream backend. The PyPI release (0.2.2) uses np.bool8, removed in numpy
 # 2.x, so it must come from git master until a fixed release ships
 # (see mdbartos/pipedream#73).
-pipedream = ["pipedream-solver @ git+https://github.com/mdbartos/pipedream.git"]
+#
+# pandas<3 is required alongside it: pipedream's compute_storage_areas/volumes
+# call numba kernels with an eager, writable-only signature (boolean[:]), but
+# feed them `(_storage_type.str.lower()=='functional').values`. pandas 3.0
+# enables Copy-on-Write by default, which makes that `.values` read-only, so
+# numba rejects it ("No matching definition ... readonly array(bool)") and
+# SuperLink(...) construction crashes. pandas<3 keeps `.values` writable.
+# Remove this pin once pipedream is patched upstream (mdbartos/pipedream#74)
+# and the fixed version is pinned above.
+pipedream = [
+    "pipedream-solver @ git+https://github.com/mdbartos/pipedream.git",
+    "pandas<3",
+]
 test = ["pytest"]
 # Documentation (Sphinx + MyST), also pinned in docs/requirements.txt for RTD.
 docs = ["sphinx>=7", "myst-nb>=1", "sphinx-rtd-theme>=2"]
