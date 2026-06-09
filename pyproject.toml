@@ -50,7 +50,9 @@ pipedream = [
 ]
 test = ["pytest"]
 # Documentation (Sphinx + MyST), also pinned in docs/requirements.txt for RTD.
-docs = ["sphinx>=7", "myst-nb>=1", "sphinx-rtd-theme>=2"]
+# jupytext keeps docs/tutorial.ipynb paired with docs/tutorial.py (authoring/sync
+# only; RTD renders the committed .ipynb and doesn't need it at build time).
+docs = ["sphinx>=7", "myst-nb>=1", "sphinx-rtd-theme>=2", "jupytext>=1.16"]
 
 [project.urls]
 "Homepage" = "https://github.com/anuga-community/anuga_drainage"
