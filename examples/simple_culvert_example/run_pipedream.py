@@ -1,292 +1,120 @@
-#------------------------------------------------------------------------------
-print('IMPORT NECESSARY MODULES')
-#------------------------------------------------------------------------------
+"""Simple channel + culvert: ANUGA <-> pipedream coupling, hand-built.
 
+The pipedream twin of ``run_swmm_short.py``: same 2D domain and inlets, but the
+1D sewer is a hand-built pipedream ``SuperLink`` (two superjunctions, one box
+culvert) instead of a SWMM ``.inp``. The per-step exchange is driven by
+``anuga_drainage.Coupler`` exactly as in the SWMM case; only the backend
+differs. Compare with ``run_from_inp.py``, which builds the pipedream network
+automatically from the ``.inp``.
+
+pipedream is finite-volume, so the pipe budget closes (R_pipe ~0) far more
+tightly than SWMM's finite-difference loss; the loss is reported by the
+VolumeBalance summary at the end.
+
+    python run_pipedream.py
+"""
 import anuga
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from pipedream_solver.hydraulics import SuperLink
+
 from anuga_drainage import Coupler, PipedreamBackend, VolumeBalance
 
-#------------------------------------------------------------------------------
-print('FILENAMES, MODEL DOMAIN and VARIABLES')
-#------------------------------------------------------------------------------
+# ---- parameters --------------------------------------------------------------
+rf = 20          # domain refinement; too coarse and inlets overlap the wall
+dt = 0.05        # yield/coupling step. pipedream's semi-implicit solver is only
+                 # stable at a small step here (cf. couple_from_inp's internal
+                 # sub-stepping, which lets the exchange stay coarse).
+out_dt = 1.0     # sww output step
+ft = 400         # final time (s)
+time_average = 1.0    # s; smooths the coupling flux
+visualise = False     # pop up head/loss plots at the end
 
-basename = 'simple_culvert'
-outname =  'domain_pipedream'
-
-
-rf = 20  # refinement factor for domain, if too coarse the inlets will overlap the wall
-
-dt = 0.05     # yield step
-out_dt = 1.0 # output step
-ft = 400     # final timestep
-
-verbose = False
-
-
-#------------------------------------------------------------------------------
-print('SETUP COMPUTATIONAL DOMAIN')
-#------------------------------------------------------------------------------
-domain = anuga.rectangular_cross_domain(3*rf, rf, len1=60, len2=20)
-domain.set_minimum_storable_height(0.0001) 
-domain.set_name(outname) 
-print (domain.statistics())
+# ---- 1. ANUGA domain ---------------------------------------------------------
+domain = anuga.rectangular_cross_domain(3 * rf, rf, len1=60, len2=20)
+domain.set_minimum_storable_height(0.0001)
+domain.set_name('domain_pipedream')
 
 
-#------------------------------------------------------------------------------
-# APPLY ELEVATION
-#------------------------------------------------------------------------------
-def topography(x,y):
-
-    z = 5*np.ones_like(x)
-
-    channel = np.logical_and(y>5,y<15)
-
-    z = np.where(np.logical_and(channel,x<10), x/300, z)
-    z = np.where(np.logical_and(channel,x>20), x/300, z)
-
+def topography(x, y):
+    z = 5 * np.ones_like(x)
+    channel = np.logical_and(y > 5, y < 15)
+    z = np.where(np.logical_and(channel, x < 10), x / 300, z)
+    z = np.where(np.logical_and(channel, x > 20), x / 300, z)
     return z
 
+
 domain.set_quantity('elevation', topography, location='centroids')
-
-#------------------------------------------------------------------------------
-# APPLY MANNING'S ROUGHNESSES
-#------------------------------------------------------------------------------
-
 domain.set_quantity('friction', 0.035)
 
-#------------------------------------------------------------------------------
-print('SETUP BOUNDARY CONDITIONS')
-#------------------------------------------------------------------------------
-
-print ('Available boundary tags', domain.get_boundary_tags())
+# Upstream inflow into the 2D domain.
+inflow_Q = 1.0
+inflow_op = anuga.Inlet_operator(domain, [[59.0, 5.0], [59.0, 15.0]], inflow_Q)
 
 Br = anuga.Reflective_boundary(domain)
-Bd = anuga.Dirichlet_boundary([-1.0,0,0])
-
+Bd = anuga.Dirichlet_boundary([-1.0, 0, 0])
 domain.set_boundary({'left': Bd, 'bottom': Br, 'top': Br, 'right': Br})
 
+# ---- 2. Coupling inlets + pipedream network ----------------------------------
+inlet_region = anuga.Region(domain, polygon=[[20, 5], [22, 5], [22, 15], [20, 15]])
+outlet_region = anuga.Region(domain, polygon=[[8, 5], [10, 5], [10, 15], [8, 15]])
+inlet_op = anuga.Inlet_operator(domain, inlet_region, Q=0.0, zero_velocity=True)
+outlet_op = anuga.Inlet_operator(domain, outlet_region, Q=0.0, zero_velocity=False)
 
-#------------------------------------------------------------------------------
-print('SETUP ANUGA INFLOW INLET')
-#------------------------------------------------------------------------------
+weir_lengths = np.array([20.0, 20.0])
+manhole_areas = np.array([20.0, 20.0])
+beds = np.array([inlet_op.inlet.get_average_elevation(),
+                 outlet_op.inlet.get_average_elevation()])
 
-input_Q = 1.0
-line=[[59.0, 5.0],[59.0, 15.0]]
-inflow_anuga_inlet_op = anuga.Inlet_operator(domain, line, input_Q)
-
-#------------------------------------------------------------------------------
-print('SETUP ANUGA INLETS FOR COUPLING')
-#------------------------------------------------------------------------------
-
-print('Setup anuga inlets for coupling')
-inlet1_anuga_region = anuga.Region(domain, polygon=[[20.0,5.0], [22.0, 5.0], [22.0, 15.], [20.0, 15.0]])
-outlet_anuga_region = anuga.Region(domain, polygon=[[8.0,5.0], [10.0, 5.0], [10.0, 15.0], [8.0, 15.0]])
-
-anuga_length_weirs = np.array([20.0, 20.0])
-anuga_area_manholes = np.array([20.0, 20.0])
-
-inlet1_anuga_inlet_op = anuga.Inlet_operator(domain, inlet1_anuga_region, Q=0.0, zero_velocity=True)
-outlet_anuga_inlet_op = anuga.Inlet_operator(domain, outlet_anuga_region, Q=0.0, zero_velocity=False)
-
-anuga_beds = np.array([inlet1_anuga_inlet_op.inlet.get_average_elevation(),
-                       outlet_anuga_inlet_op.inlet.get_average_elevation()])
-
-print('anuga beds', anuga_beds)
-
-#------------------------------------------------------------------------------
-print('Setup PIPEDREAM')
-#------------------------------------------------------------------------------
-
-print('Setup pipedream structures')
-from pipedream_solver.hydraulics import SuperLink
-import matplotlib.pyplot as plt
-import pandas as pd
-
-
-# Details availabe from https://mattbartos.com/pipedream/geometry-reference.html and
-# https://github.com/mdbartos/pipedream/blob/master/pipedream_solver/geometry.py
-
-superjunctions = pd.DataFrame({'name': [0, 1],
-                               'id': [0, 1],
-                               'z_inv': [0.04, 0.00],
-                               'h_0': 2*[0],
-                               'bc': 2*[False],
-                               'storage': 2*['functional'],
-                               'a': 2*[0.],
-                               'b': 2*[1.],
-                               'c': 2*[10.],
-                               'max_depth': 2*[np.inf],
-                               'map_x': 2*[0],
-                               'map_y': 2*[0]})
-
-superlinks = pd.DataFrame({'name': [0],
-                           'id': [0],
-                           'sj_0': [0],
-                           'sj_1': [1],
-                           'in_offset': 1*[0.],
-                           'out_offset': 1*[0.],
-                           'dx': [10],
-                           'n': 1*[0.013],
-                           'shape': 1*['rect_closed'],
-                           'g1': 1*[1.0],
-                           'g2': 1*[10.0],
-                           'g3': 1*[0.1],
-                           'g4': 1*[0.],
-                           'Q_0': 1*[0.],
-                           'h_0': 1*[1e-5],
-                           'ctrl': 1*[False],
-                           'A_s': 1*[0.],
-                           'A_c': 1*[0.],
-                           'C': 1*[0.]})
-
+# pipedream network: two superjunctions joined by one rect_closed (box) culvert.
+# Geometry reference: https://mattbartos.com/pipedream/geometry-reference.html
+superjunctions = pd.DataFrame({
+    'name': [0, 1], 'id': [0, 1], 'z_inv': [0.04, 0.00], 'h_0': 2 * [0],
+    'bc': 2 * [False], 'storage': 2 * ['functional'],
+    'a': 2 * [0.], 'b': 2 * [1.], 'c': 2 * [10.], 'max_depth': 2 * [np.inf],
+    'map_x': 2 * [0], 'map_y': 2 * [0]})
+superlinks = pd.DataFrame({
+    'name': [0], 'id': [0], 'sj_0': [0], 'sj_1': [1],
+    'in_offset': [0.], 'out_offset': [0.], 'dx': [10], 'n': [0.013],
+    'shape': ['rect_closed'], 'g1': [1.0], 'g2': [10.0], 'g3': [0.1], 'g4': [0.],
+    'Q_0': [0.], 'h_0': [1e-5], 'ctrl': [False], 'A_s': [0.], 'A_c': [0.], 'C': [0.]})
 superlink = SuperLink(superlinks, superjunctions, internal_links=6)
 
+coupler = Coupler(inlets=[inlet_op, outlet_op], beds=beds,
+                  weir_lengths=weir_lengths, manhole_areas=manhole_areas,
+                  backend=PipedreamBackend(superlink), time_average=time_average)
 
-#--------------------------------------------------------------------------
-print('Setup storage for output')
-#--------------------------------------------------------------------------
-H_js = []
-losses = []
+# ---- 3. Per-component volume-balance audit -----------------------------------
+vb = VolumeBalance(domain, coupling_inlets=[inlet_op, outlet_op],
+                   backend=coupler.backend, inflow_operators=[inflow_op])
 
-Q_iks =[]
-Q_uks =[]
-Q_dks =[]
-time_series = []
-anuga_ws = []
-Q_ins = []
-
-
-#---------------------------------------------------------------------------
-print('Set time averaging of Q')
-#---------------------------------------------------------------------------
-
-# slow the response of the coupling calculation
-time_average = 1 # sec
-
-coupler = Coupler(inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
-                  beds=anuga_beds,
-                  weir_lengths=anuga_length_weirs,
-                  manhole_areas=anuga_area_manholes,
-                  backend=PipedreamBackend(superlink),
-                  time_average=time_average)
-
-# Per-component + per-inlet water-volume audit. pipedream is finite-volume, so
-# R_pipe should be ~0 here (cf. SWMM's finite-difference loss).
-vb = VolumeBalance(domain,
-                   coupling_inlets=[inlet1_anuga_inlet_op, outlet_anuga_inlet_op],
-                   backend=coupler.backend,
-                   inflow_operators=[inflow_anuga_inlet_op])
-
-#---------------------------------------------------------------------------
-print('Start Evolve')
-#---------------------------------------------------------------------------
-prev_step = None   # previous CouplingStep, for the aligned audit
+# ---- 4. Evolve loop ----------------------------------------------------------
+times, heads, stages = [], [], []
+prev_step = None   # previous CouplingStep, for the aligned (top-of-loop) audit
 for t in domain.evolve(yieldstep=dt, outputstep=out_dt, finaltime=ft):
-    #print('\n')
-    if domain.yieldstep_counter%domain.output_frequency == 0:
+    vb.step(t, dt, prev_step)        # audit at the top, with the previous step
+    prev_step = coupler.step(dt)     # exchange + pipedream advance + feedback
+
+    times.append(t)
+    heads.append(coupler.backend.get_heads().copy())
+    stages.append(np.array([inlet_op.inlet.get_average_stage(),
+                            outlet_op.inlet.get_average_stage()]))
+    if domain.yieldstep_counter % domain.output_frequency == 0:
         domain.print_timestepping_statistics()
 
-    vb.step(t, dt, prev_step)   # audit at the top of the loop (aligned reads)
-
-    anuga_depths = np.array([inlet1_anuga_inlet_op.inlet.get_average_depth(),
-                             outlet_anuga_inlet_op.inlet.get_average_depth()])
-    
-    anuga_stages = np.array([inlet1_anuga_inlet_op.inlet.get_average_stage(),
-                             outlet_anuga_inlet_op.inlet.get_average_stage()])
-
-
-    # Compute the water volumes
-    link_volume = ((superlink._A_ik * superlink._dx_ik).sum() +
-                   (superlink._A_SIk * superlink._h_Ik).sum())
-    node_volume = (superlink._A_sj * (superlink.H_j - superlink._z_inv_j)).sum()
-    sewer_volume = link_volume + node_volume
-
-    boundary_flux = domain.get_boundary_flux_integral()
-    total_volume_correct = t*input_Q + boundary_flux 
-    
-    total_volume_real = domain.get_water_volume() + sewer_volume
-    loss = total_volume_real - total_volume_correct
-
-    if domain.yieldstep_counter%domain.output_frequency == 0:
-        print('    Loss         ', loss)
-        print('    TV correct   ', total_volume_correct)
-        print('    domain volume', domain.get_water_volume())
-        print('    node_volume  ', node_volume)
-        print('    sewer_volume ', sewer_volume)
-        print('    anuga_depths ', anuga_depths)
-        print('    anuga_beds   ', anuga_beds)
-        print('    MOInvert     ', superlink._z_inv_j)
-        print('    Head         ', superlink.H_j)
-        print('    anuga_stages ', anuga_stages)
-
-    # Append data
-    time_series.append(t)
-    losses.append(loss)
-    H_js.append(superlink.H_j.copy())
-    anuga_ws.append(anuga_stages.copy())
-    
-
-    # record flow time series in each pipe
-    Q_iks.append(superlink.Q_ik.copy())
-    Q_uks.append(superlink.Q_uk.copy())
-    Q_dks.append(superlink.Q_dk.copy())
-
-        
-    # Calculate discharge at inlets, smooth, step the sewer and feed the
-    # realised flow back to ANUGA (see anuga_drainage.Coupler).
-    step = coupler.step(dt)
-    Q_in = step.Q_in
-    prev_step = step
-
-    Q_ins.append(Q_in.copy())
-
-    if domain.yieldstep_counter%domain.output_frequency == 0:
-        print('    Q            ', Q_in)
-
-
+# ---- 5. Report ---------------------------------------------------------------
 print()
 print(vb.summary())
 vb.plot('volume_balance.png')
 
-H_j = np.vstack(H_js)
-anuga_j = np.vstack(anuga_ws)
-Q_ins = np.vstack(Q_ins)
-
-plt.ion()
-
-plt.figure(1)
-plt.plot(time_series, H_j[:,0], label='Pipe Inlet 0')
-plt.plot(time_series, H_j[:,1], label='Pipe Inlet 1')
-plt.plot(time_series, anuga_j[:,0], label='Anuga Inlet 0')
-plt.plot(time_series, anuga_j[:,1], label='Anuga Inlet 1')
-plt.legend()
-plt.title('Head at junctions')
-plt.xlabel('Time (s)')
-plt.ylabel('Head (m)')
-plt.savefig('Figure1.png')
-plt.show()
-
-plt.figure(2)
-plt.clf()
-plt.plot(time_series, losses)
-plt.title('Losses')
-plt.savefig('Figure2.png')
-plt.show()
-
-plt.figure(3)
-plt.clf()
-plt.plot(time_series, Q_dks)
-plt.title('Q_dks')
-plt.savefig('Figure3.png')
-plt.show()
-
-plt.figure(4)
-plt.clf()
-plt.plot(time_series, Q_ins[:,0], label='Inlet 0')
-plt.plot(time_series, Q_ins[:,1], label='Inlet 1')
-plt.legend()
-plt.title('Q_in')
-plt.savefig('Figure4.png')
-plt.show()
-
-input('Enter key ...')
+if visualise:
+    times = np.array(times)
+    heads, stages = np.vstack(heads), np.vstack(stages)
+    plt.figure(figsize=(8, 5))
+    for i, name in enumerate(['Inlet', 'Outlet']):
+        plt.plot(times, heads[:, i], label=f'pipe head {name}')
+        plt.plot(times, stages[:, i], '--', label=f'ANUGA stage {name}')
+    plt.xlabel('time (s)'); plt.ylabel('head (m)')
+    plt.legend(); plt.title('Heads at junctions')
+    plt.tight_layout(); plt.savefig('Figure_heads.png'); plt.show()
