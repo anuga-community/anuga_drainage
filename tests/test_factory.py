@@ -139,3 +139,31 @@ def test_couple_from_inp_inlet_specs_decouple_hydraulics_from_footprint(inp_path
     # Footprint is decoupled: J1's ANUGA region is far larger than the grate opening.
     assert c.coupler.inlets[0].inlet.get_area() > grate.operational_area
     c.close()
+
+
+def test_couple_from_inp_logs_hydrographs(inp_path, tmp_path):
+    anuga = pytest.importorskip("anuga")
+    pytest.importorskip("pipedream_solver.hydraulics")
+    from anuga_drainage import couple_from_inp
+
+    domain = anuga.rectangular_cross_domain(20, 10, len1=20.0, len2=10.0)
+    domain.set_quantity("elevation", 0.0)
+    domain.set_quantity("stage", 0.3)
+    Br = anuga.Reflective_boundary(domain)
+    domain.set_boundary({"left": Br, "right": Br, "top": Br, "bottom": Br})
+
+    c = couple_from_inp(domain, inp_path, backend="pipedream",
+                        manhole_area=0.5, internal_links=4, log_hydrographs=True)
+    assert c.coupler.logger is not None
+
+    for t in domain.evolve(yieldstep=1.0, finaltime=3.0):
+        c.step(1.0)
+
+    df = c.coupler.logger.to_dataframe("J1")
+    assert not df.empty
+    for col in ("Time_s", "Depth_m", "Head1D_m", "Captured_Q_cms",
+                "Surcharge_Q_cms", "Cum_Captured_m3"):
+        assert col in df.columns
+    paths = c.coupler.logger.write_csv(directory=str(tmp_path))
+    assert len(paths) == 2                          # one per junction (J1, J2)
+    c.close()

@@ -273,7 +273,7 @@ class Coupler:
 
     def __init__(self, inlets, beds, weir_lengths, manhole_areas, backend,
                  time_average=0.0, clamp=False, safety_factor=1.0,
-                 cw=0.67, co=0.67, g=None):
+                 cw=0.67, co=0.67, g=None, logger=None):
         self.inlets = list(inlets)
         self.beds = np.asarray(beds, dtype=float)
         self.weir_lengths = np.asarray(weir_lengths, dtype=float)
@@ -285,6 +285,7 @@ class Coupler:
         self.cw = cw
         self.co = co
         self.g = g  # gravity for calculate_Q; None -> ANUGA's value (see calculate_Q)
+        self.logger = logger  # optional HydrographLogger; records each step if set
         self.Q_in = np.zeros(len(self.inlets))
 
     def depths(self):
@@ -311,4 +312,21 @@ class Coupler:
         for op, f in zip(self.inlets, flux):
             op.set_Q(f)
 
+        if self.logger is not None:
+            self._log_step(dt, depths, heads, Q)
+
         return CouplingStep(Q_in=Q, anuga_flux=flux)
+
+    def _log_step(self, dt, depths, heads, Q):
+        """Feed one row per inlet to the hydrograph logger.
+
+        Approach flow is estimated per inlet from the region-averaged specific
+        discharge (momentum) times a representative width (sqrt of the inlet
+        area) -- the same surface-side heuristic as the standalone capture model.
+        """
+        uh = np.array([op.inlet.get_average_xmom() for op in self.inlets])
+        vh = np.array([op.inlet.get_average_ymom() for op in self.inlets])
+        widths = np.sqrt([op.inlet.get_area() for op in self.inlets])
+        approach = np.sqrt(uh ** 2 + vh ** 2) * widths
+        time = self.inlets[0].domain.get_time() if self.inlets else 0.0
+        self.logger.record(time, dt, depths, heads, approach, Q)
