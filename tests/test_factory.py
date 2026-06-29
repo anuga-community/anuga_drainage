@@ -112,3 +112,30 @@ def test_couple_from_inp_pipedream(inp_path):
     assert np.isfinite(last.Q_in).all()
     assert len(c.volume_balance.records) >= 1      # the audit recorded steps
     c.close()                                      # no-op for pipedream, but must not raise
+
+
+def test_couple_from_inp_inlet_specs_decouple_hydraulics_from_footprint(inp_path):
+    anuga = pytest.importorskip("anuga")
+    pytest.importorskip("pipedream_solver.hydraulics")
+    from anuga_drainage import couple_from_inp, INLET_LIBRARY
+
+    domain = anuga.rectangular_cross_domain(20, 10, len1=20.0, len2=10.0)
+    domain.set_quantity("elevation", 0.0)
+    domain.set_quantity("stage", 0.3)
+    Br = anuga.Reflective_boundary(domain)
+    domain.set_boundary({"left": Br, "right": Br, "top": Br, "bottom": Br})
+
+    # J1 gets a catalogue grate (50% blocked); J2 keeps the footprint default.
+    c = couple_from_inp(domain, inp_path, backend="pipedream",
+                        manhole_area=0.5, internal_links=4,
+                        inlet_specs={"J1": "Grate_600x600"}, blockage={"J1": 0.5})
+
+    grate = INLET_LIBRARY["Grate_600x600"]
+    # J1 (index 0): hydraulic area/perimeter come from the spec, derated 50%.
+    assert c.coupler.manhole_areas[0] == pytest.approx(grate.clear_area * 0.5)
+    assert c.coupler.weir_lengths[0] == pytest.approx(grate.effective_perimeter * 0.5)
+    # J2 (index 1, no spec): keeps the footprint-derived hydraulic area (=manhole_area).
+    assert c.coupler.manhole_areas[1] == pytest.approx(0.5)
+    # Footprint is decoupled: J1's ANUGA region is far larger than the grate opening.
+    assert c.coupler.inlets[0].inlet.get_area() > grate.operational_area
+    c.close()
