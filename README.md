@@ -57,6 +57,21 @@ save `Figure*.png`.
 - `initialize_inlets(...)` / `read_inp_coordinates(...)` — build ANUGA inlet
   operators from a SWMM `.inp` file.
 
+## Hydrograph viewer
+
+A Tkinter dashboard for inspecting per-inlet hydrograph CSVs (e.g. those written
+by `HydrographLogger`):
+
+```bash
+pip install -e .[viewer]     # + matplotlib (Tkinter is stdlib)
+anuga-drainage-viewer        # or: python -m anuga_drainage.viewer
+```
+
+Pick a folder of `hydrograph_*.csv`; per inlet it draws four diagnostic plots,
+and a **View** menu adds a folder-combined hydrograph. The pure
+`combine_hydrographs()` helper (used by the combined view) is importable and
+tested on its own.
+
 ## Tests
 
 ```bash
