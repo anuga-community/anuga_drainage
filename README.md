@@ -56,6 +56,18 @@ save `Figure*.png`.
   scripts use it.
 - `initialize_inlets(...)` / `read_inp_coordinates(...)` — build ANUGA inlet
   operators from a SWMM `.inp` file.
+- `InletSpec` / `INLET_LIBRARY` / `load_inlet_library(...)` — a named inlet
+  **asset catalogue** (clear opening area + weir perimeter, with optional
+  blockage that derates both). Assign one per junction via
+  `couple_from_inp(inlet_specs={name: "Grate_600x600"}, blockage=...)` to drive
+  that junction's exchange flux from a catalogued grate/lintel — **decoupled from
+  the surface footprint** (the coupling region / pipedream storage still come
+  from `manhole_area`/`inlet_polygons`). Catalogues can be loaded from TOML.
+- `HydrographLogger` — optional per-inlet hydrograph logging. Pass
+  `couple_from_inp(log_hydrographs=True)` (reachable at
+  `coupling.coupler.logger`); records depth, 1D head, capture/surcharge and
+  cumulative volumes, and `write_csv(dir)` emits one CSV per inlet — read by the
+  viewer below.
 
 ## Hydrograph viewer
 
