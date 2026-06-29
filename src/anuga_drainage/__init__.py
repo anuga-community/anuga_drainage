@@ -16,3 +16,4 @@ from .inlet_catalogue import (
     load_inlet_library,
     resolve_inlet_spec,
 )
+from .hydrograph import HydrographLogger

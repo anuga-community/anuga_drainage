@@ -14,6 +14,7 @@ import numpy as np
 from .inp import read_inp, inp_to_pipedream
 from .inlet_initialization import n_sided_inlet
 from .coupler import Coupler, SwmmBackend, PipedreamBackend
+from .hydrograph import HydrographLogger
 
 
 @dataclass
@@ -90,7 +91,7 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
                     inlet_specs=None, library=None, blockage=0.0,
                     time_average=1.0, clamp=True, cw=0.67, co=0.67,
                     internal_links=20, pit_area=1.0, pipedream_max_step=None,
-                    superlink_kwargs=None):
+                    superlink_kwargs=None, log_hydrographs=False):
     """Build a ready :class:`~anuga_drainage.Coupler` from a SWMM ``.inp``.
 
     Parameters
@@ -122,6 +123,9 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
         (all) or a ``{junction_name: fraction}`` dict. Derates the spec's area and
         perimeter. Ignored for junctions without an ``inlet_specs`` entry.
     time_average, clamp, cw, co : forwarded to the ``Coupler``.
+    log_hydrographs : if True, attach a :class:`~anuga_drainage.HydrographLogger`
+        that records a per-inlet hydrograph each step; access it via
+        ``coupling.coupler.logger`` and dump CSVs with ``logger.write_csv(dir)``.
     internal_links, pit_area, superlink_kwargs : pipedream-only (discretisation,
         internal-junction storage, extra ``SuperLink`` kwargs).
     pipedream_max_step : pipedream-only cap on the solver's *internal* hydraulic
@@ -226,8 +230,10 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
     else:
         raise ValueError(f"backend must be 'swmm' or 'pipedream', got {backend!r}")
 
+    logger = HydrographLogger(jnames) if log_hydrographs else None
     coupler = Coupler(inlets=inlets, beds=beds, weir_lengths=hyd_weirs,
                       manhole_areas=hyd_areas, backend=be,
-                      time_average=time_average, clamp=clamp, cw=cw, co=co)
+                      time_average=time_average, clamp=clamp, cw=cw, co=co,
+                      logger=logger)
     return Coupling(coupler=coupler, inlets=dict(zip(jnames, inlets)),
                     backend=be, handle=handle, inp=inp, domain=domain)
