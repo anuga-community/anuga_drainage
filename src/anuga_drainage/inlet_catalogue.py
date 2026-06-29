@@ -102,3 +102,24 @@ def load_inlet_library(path):
             raise ValueError(
                 f"Inlet '{name}' in {path} is missing required key {e}") from e
     return library
+
+
+def resolve_inlet_spec(spec_ref, library=None, blockage=0.0):
+    """Resolve a spec reference to an InletSpec, applying a blockage.
+
+    ``spec_ref`` is either a catalogue key (looked up in ``library``, default
+    INLET_LIBRARY) or an InletSpec instance. The returned spec carries the given
+    ``blockage`` (overriding any on the source), so its ``operational_area`` /
+    ``operational_perimeter`` are the values to feed the weir/orifice coupling.
+    """
+    if library is None:
+        library = INLET_LIBRARY
+    if isinstance(spec_ref, InletSpec):
+        base = spec_ref
+    elif spec_ref in library:
+        base = library[spec_ref]
+    else:
+        raise KeyError(
+            f"Inlet spec {spec_ref!r} not found in library "
+            f"(known: {sorted(library)})")
+    return InletSpec(base.name, base.clear_area, base.effective_perimeter, blockage)

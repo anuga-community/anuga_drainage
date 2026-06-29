@@ -87,6 +87,7 @@ def _polygon_perimeter(p):
 
 def couple_from_inp(domain, inp_path, backend="swmm", *,
                     manhole_area=1.0, n_sides=6, rotation=0.0, inlet_polygons=None,
+                    inlet_specs=None, library=None, blockage=0.0,
                     time_average=1.0, clamp=True, cw=0.67, co=0.67,
                     internal_links=20, pit_area=1.0, pipedream_max_step=None,
                     superlink_kwargs=None):
@@ -106,7 +107,20 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
         when an inlet must **span a channel** (the ``.inp`` only carries a point,
         so the auto polygon can be too narrow and flow overtops past it). The
         coupling region's area and perimeter become that junction's
-        ``manhole_area`` and ``weir_length``.
+        ``manhole_area`` and ``weir_length`` (unless overridden by ``inlet_specs``).
+    inlet_specs : optional ``{junction_name: spec}`` assigning a named inlet
+        (catalogue key) or an :class:`~anuga_drainage.InletSpec` to a junction.
+        The spec's ``operational_area`` / ``operational_perimeter`` then drive the
+        weir/orifice flux (``area_manhole`` / ``length_weir`` in ``calculate_Q``)
+        for that junction, **decoupled** from the surface coupling footprint:
+        the ANUGA region (and pipedream storage) still come from ``manhole_area`` /
+        ``inlet_polygons``, so a small grate opening doesn't shrink the footprint.
+        Junctions without a spec keep the footprint-derived geometry (unchanged).
+    library : optional ``{name: InletSpec}`` catalogue for resolving ``inlet_specs``
+        keys (default: the built-in ``INLET_LIBRARY``).
+    blockage : clogging fraction 0.0..1.0 applied to spec'd junctions; a scalar
+        (all) or a ``{junction_name: fraction}`` dict. Derates the spec's area and
+        perimeter. Ignored for junctions without an ``inlet_specs`` entry.
     time_average, clamp, cw, co : forwarded to the ``Coupler``.
     internal_links, pit_area, superlink_kwargs : pipedream-only (discretisation,
         internal-junction storage, extra ``SuperLink`` kwargs).
@@ -125,6 +139,7 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
         A ready coupling (see :class:`Coupling`).
     """
     from anuga import Inlet_operator, Region   # lazy: pure callers don't need ANUGA
+    from .inlet_catalogue import resolve_inlet_spec
 
     inp = read_inp(inp_path)
     jnames = list(inp.junctions["name"])
@@ -137,10 +152,23 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
     if unknown:
         raise ValueError(f"inlet_polygons names not in [JUNCTIONS]: {sorted(unknown)}")
 
+    # Resolve any inlet_specs to derated InletSpecs keyed by junction name.
+    inlet_specs = inlet_specs or {}
+    unknown = set(inlet_specs) - set(jnames)
+    if unknown:
+        raise ValueError(f"inlet_specs names not in [JUNCTIONS]: {sorted(unknown)}")
+    specs = {name: resolve_inlet_spec(
+                ref, library,
+                blockage[name] if isinstance(blockage, dict) else blockage)
+             for name, ref in inlet_specs.items()}
+
     # --- ANUGA inlet operators at each junction (backend-agnostic) ---
-    # A custom polygon overrides the auto regular polygon; its area/perimeter
-    # become that junction's manhole_area/weir_length.
-    inlets, beds, weir_lengths, areas = [], [], [], []
+    # The polygon sets the surface coupling footprint (the ANUGA region, and the
+    # pipedream storage area). The *hydraulic* area/perimeter fed to calculate_Q
+    # come from an assigned inlet_spec if any, else the footprint geometry — so a
+    # small grate opening drives the flux without shrinking the footprint.
+    inlets, beds = [], []
+    footprint_areas, hyd_weirs, hyd_areas = [], [], []
     for name, area in zip(jnames, areas_in):
         if name in inlet_polygons:
             vertices = [[float(x), float(y)] for x, y in inlet_polygons[name]]
@@ -162,11 +190,18 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
                             Q=0.0, zero_velocity=True)
         inlets.append(op)
         beds.append(op.inlet.get_average_elevation())
-        weir_lengths.append(weir)
-        areas.append(eff_area)
+        footprint_areas.append(eff_area)
+        spec = specs.get(name)
+        if spec is not None:
+            hyd_areas.append(spec.operational_area)
+            hyd_weirs.append(spec.operational_perimeter)
+        else:
+            hyd_areas.append(eff_area)
+            hyd_weirs.append(weir)
     beds = np.array(beds)
-    weir_lengths = np.array(weir_lengths)
-    areas = np.array(areas)
+    footprint_areas = np.array(footprint_areas)
+    hyd_weirs = np.array(hyd_weirs)
+    hyd_areas = np.array(hyd_areas)
 
     # --- 1D backend, junctions ordered to match the inlets ---
     if backend == "swmm":
@@ -178,7 +213,7 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
         handle = sim
     elif backend == "pipedream":
         from pipedream_solver.hydraulics import SuperLink
-        sj, sl = inp_to_pipedream(inp, manhole_area=float(areas[0]), pit_area=pit_area)
+        sj, sl = inp_to_pipedream(inp, manhole_area=float(footprint_areas[0]), pit_area=pit_area)
         superlink = SuperLink(sl, sj, internal_links=internal_links,
                               **(superlink_kwargs or {}))
         n_j = len(jnames)
@@ -191,8 +226,8 @@ def couple_from_inp(domain, inp_path, backend="swmm", *,
     else:
         raise ValueError(f"backend must be 'swmm' or 'pipedream', got {backend!r}")
 
-    coupler = Coupler(inlets=inlets, beds=beds, weir_lengths=weir_lengths,
-                      manhole_areas=areas, backend=be,
+    coupler = Coupler(inlets=inlets, beds=beds, weir_lengths=hyd_weirs,
+                      manhole_areas=hyd_areas, backend=be,
                       time_average=time_average, clamp=clamp, cw=cw, co=co)
     return Coupling(coupler=coupler, inlets=dict(zip(jnames, inlets)),
                     backend=be, handle=handle, inp=inp, domain=domain)
