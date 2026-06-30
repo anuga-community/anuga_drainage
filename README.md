@@ -53,7 +53,11 @@ save `Figure*.png`.
 - `Coupler` with `SwmmBackend` / `PipedreamBackend` — drives the per-step
   exchange (read depths → `calculate_Q` → smooth → optional clamp → step the 1D
   model → feed the realised flow back to ANUGA). All the coupled `run_*` example
-  scripts use it.
+  scripts use it. Only `[JUNCTIONS]` couple to the surface; **outfalls are
+  boundaries** — outfall water leaves the model at a free-draining boundary by
+  default (tracked by `backend.outfall_volume()`, counted as `loss` in the
+  audit), or set `outfall_inlet=<index>` to return it to the 2D surface at a
+  chosen inlet. See the docs' *Where outfall water goes*.
 - `initialize_inlets(...)` / `read_inp_coordinates(...)` — build ANUGA inlet
   operators from a SWMM `.inp` file.
 - `InletSpec` / `INLET_LIBRARY` / `load_inlet_library(...)` — a named inlet
