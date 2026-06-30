@@ -18,6 +18,11 @@ of the 2D↔1D exchange and the tooling around it:
   lost or gained (ANUGA, the pipe solver, or the coupling).
 - **`couple_from_inp`** — build the entire sewer **and** the ANUGA coupling from
   a single SWMM `.inp` file, for either backend.
+- **Inlet asset catalogue** — drive a junction's flux from a named grate/lintel
+  (with blockage), decoupled from the surface footprint
+  ([guide](inlet_catalogue.md)).
+- **Hydrograph logging & viewer** — record per-inlet CSVs and inspect them in a
+  Tkinter dashboard ([guide](hydrographs.md)).
 
 ```{admonition} The headline
 :class: tip
@@ -34,7 +39,9 @@ installation
 quickstart
 tutorial
 coupling
+inlet_catalogue
 diagnostics
+hydrographs
 inp_format
 api
 ```
