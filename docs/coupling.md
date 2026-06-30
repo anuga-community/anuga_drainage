@@ -21,6 +21,20 @@ Sign convention: **positive `Q` = water leaving the 2D surface and entering the
 vectorised over numpy arrays of inlets. `g` (gravity) defaults to ANUGA's value;
 pass it explicitly to use the function without ANUGA (e.g. in tests).
 
+```{admonition} The `min_head` deadband
+:class: note
+`calculate_Q(..., min_head=1.0e-3)` is a deadband on the driving head: no
+exchange is computed when the relevant head difference is below `min_head` (m).
+This suppresses spurious exchange from sub-millimetre, numerically-noisy head
+differences — for example when a 1D solver initialises a junction head a hair
+(~1e-5 m) above the bed. Without it, that phantom head surcharges onto a *dry*
+surface and sets off a growing capture/surcharge oscillation before any real
+water arrives (seen with the pipedream backend, whose superjunctions start just
+above their invert; SWMM reports head == invert exactly and was unaffected).
+Real exchange (head differences ≫ `min_head`) is unchanged. Lower it toward 0 to
+recover the old behaviour, or raise it to ignore larger head differences.
+```
+
 ## The driver: `Coupler`
 
 {class}`~anuga_drainage.Coupler` encapsulates the per-step sequence:
