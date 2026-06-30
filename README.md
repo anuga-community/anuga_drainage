@@ -8,6 +8,8 @@ flow) with a 1D stormwater / sewer network solver — **SWMM** (via `pyswmm`) or
 model the underground pipe network, and the two exchange water at
 inlets/manholes every timestep using weir/orifice equations.
 
+📖 **Full documentation:** <https://anuga-drainage.readthedocs.io/>
+
 ## Installation
 
 The quickest path is the bundled conda environment (ANUGA 3.3.6 from
