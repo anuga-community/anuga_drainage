@@ -35,6 +35,49 @@ Real exchange (head differences ≫ `min_head`) is unchanged. Lower it toward 0 
 recover the old behaviour, or raise it to ignore larger head differences.
 :::
 
+## Why Leandro & Martins, not HEC-22 / HEC-RAS?
+
+A common question, since HEC-RAS's storm-sewer inlets use the FHWA **HEC-22**
+inlet-capacity equations (and the sister project *Simple_SW_Inlets* uses HEC-22,
+which is where its `C_w = 1.66` comes from — vs the `cw = 0.67` here). The two
+methods answer **different questions**:
+
+- **Leandro & Martins (2016)** is a *node exchange* law: water moves between the
+  surface and the pipe driven by the **head difference**, weir below the manhole
+  crest, orifice once submerged, and **surcharge back up** when the pipe head
+  exceeds the surface. It is bidirectional and conservative.
+- **HEC-22** is an *inlet capture-efficiency* method: how much of a defined
+  **gutter flow** a specific grate/curb inlet catches on grade (the rest
+  bypasses). It is a one-way design-sizing tool.
+
+For a fully-2D, dynamic 2D↔1D coupling, L&M is the right backbone:
+
+1. **Surcharge.** L&M floods water *back up* out of manholes when the pipe head
+   exceeds the surface — the key urban-flood behaviour. HEC-22's on-grade capture
+   equations have no surcharge concept.
+2. **It uses the state you have.** On a 2D mesh you have a ponded depth/head at
+   the inlet cell, not a 1D gutter flow + spread + cross-slope. HEC-22's grade
+   equations *require* those gutter quantities; reconstructing them from a 2D
+   field is fragile.
+3. **Conservation.** L&M's node exchange is what the {doc}`volume audit
+   <diagnostics>` closes against to machine precision; a capture-efficiency curve
+   is not a conservative node law.
+
+The two are **complementary**, not rivals: HEC-22 is still the right source of
+inlet *geometry* — clear opening area `A`, effective perimeter `P` and blockage —
+which the {doc}`asset catalogue <inlet_catalogue>` feeds straight into the L&M
+weir/orifice. So catalogued grate specs parameterise a conservative, bidirectional
+coupling.
+
+:::{admonition} Don't "fix" one weir coefficient to match the other
+:class: warning
+The `cw = 0.67` here and HEC-22's `C_w = 1.66` differ because they describe
+**different edges**: L&M's is a manhole orifice-edge weir over the manhole
+perimeter, HEC-22's is a grate weir over the grate's opening perimeter. They are
+not the same coefficient mis-set — pick the one that matches your inlet, and keep
+HEC-22's value with HEC-22 geometry.
+:::
+
 ## The driver: `Coupler`
 
 {class}`~anuga_drainage.Coupler` encapsulates the per-step sequence:
