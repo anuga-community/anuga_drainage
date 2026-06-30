@@ -38,10 +38,21 @@ Each example runs from its own directory (scripts use relative paths):
 
 ```bash
 cd examples/simple_culvert_example
-python run_swmm_short.py     # ANUGA + SWMM
-python run_pipedream.py      # ANUGA + pipedream
+python run_swmm_short.py     # ANUGA + SWMM, inlets hand-built
+python run_pipedream.py      # ANUGA + pipedream, network hand-built
 python run_boyd.py           # ANUGA-only reference (Boyd culvert operator)
+python run_from_inp.py       # ANUGA + SWMM straight from the .inp (default)
+python run_from_inp.py pipedream   # ...same .inp, pipedream backend
 ```
+
+The `run_from_inp.py` scripts are the **living example of `couple_from_inp`**:
+the sewer network *and* the ANUGA coupling inlets are built from a single SWMM
+`.inp` for whichever backend you pick, so the only model-specific code is the
+2D domain, the inflow, and the evolve loop — contrast the `run_swmm*` /
+`run_pipedream.py` scripts, which hand-assemble the inlets (and, for pipedream,
+the whole superjunction/superlink network). Both `simple_culvert_example/` and
+`real_example/` ship one. With `log_hydrographs=True` they also write per-inlet
+CSVs to `hydrographs_<backend>/` for the viewer.
 
 ANUGA writes `<name>.sww`; scripts print a running mass-balance `loss` and may
 save `Figure*.png`.
