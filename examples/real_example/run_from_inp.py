@@ -80,8 +80,9 @@ for t in domain.evolve(yieldstep=dt, finaltime=ft):
 print()
 print(coupling.volume_balance.summary())
 
-# Per-inlet hydrograph CSVs -> view with `anuga-drainage-viewer` in this folder.
-paths = coupling.coupler.logger.write_csv('.')
-print(f'Wrote {len(paths)} hydrograph CSV(s): {paths}')
+# Per-inlet hydrograph CSVs (per-backend folder so swmm/pipedream don't clobber
+# each other) -> view with `anuga-drainage-viewer` on that folder.
+paths = coupling.coupler.logger.write_csv(f'hydrographs_{backend}')
+print(f'Wrote {len(paths)} hydrograph CSV(s) to hydrographs_{backend}/')
 
 coupling.close()
