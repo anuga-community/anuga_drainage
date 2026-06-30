@@ -83,7 +83,8 @@ coupling = couple_from_inp(domain, './swmm_input_short.inp', backend=backend,
                                'Outlet': [[8, 6], [10, 6], [10, 14], [8, 14]],
                            },
                            time_average=10.0, clamp=True,
-                           internal_links=6, pipedream_max_step=0.01)
+                           internal_links=6, pipedream_max_step=0.01,
+                           log_hydrographs=True)
 print(f'Coupled {len(coupling.inlets)} junctions from the .inp: '
       f'{list(coupling.inlets)}  (backend={backend})')
 
@@ -100,4 +101,9 @@ for t in domain.evolve(yieldstep=dt, outputstep=10.0, finaltime=400.0):
 print()
 print(coupling.volume_balance.summary())
 coupling.volume_balance.plot('volume_balance.png')
+
+# Per-inlet hydrograph CSVs -> view with `anuga-drainage-viewer` in this folder.
+paths = coupling.coupler.logger.write_csv('.')
+print(f'Wrote {len(paths)} hydrograph CSV(s): {paths}')
+
 coupling.close()

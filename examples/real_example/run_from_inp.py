@@ -62,7 +62,8 @@ input1_op = Inlet_operator(domain, Region(domain, radius=1.0,
 #------------------------------------------------------------------------------
 coupling = couple_from_inp(domain, inp_name, backend=backend,
                            manhole_area=1.167, n_sides=6,
-                           time_average=10.0, clamp=True)
+                           time_average=10.0, clamp=True,
+                           log_hydrographs=True)
 print(f'Coupled {len(coupling.inlets)} junctions from {inp_name}: '
       f'{list(coupling.inlets)}  (backend={backend})')
 
@@ -78,4 +79,9 @@ for t in domain.evolve(yieldstep=dt, finaltime=ft):
 
 print()
 print(coupling.volume_balance.summary())
+
+# Per-inlet hydrograph CSVs -> view with `anuga-drainage-viewer` in this folder.
+paths = coupling.coupler.logger.write_csv('.')
+print(f'Wrote {len(paths)} hydrograph CSV(s): {paths}')
+
 coupling.close()
