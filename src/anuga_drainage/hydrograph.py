@@ -96,7 +96,11 @@ class HydrographLogger:
         return df
 
     def write_csv(self, directory=".", prefix="hydrograph_"):
-        """Write one ``<prefix><name>.csv`` per inlet; returns the paths written."""
+        """Write one ``<prefix><name>.csv`` per inlet; returns the paths written.
+
+        ``directory`` is created if it does not exist.
+        """
+        os.makedirs(directory, exist_ok=True)
         paths = []
         for name in self.names:
             df = self.to_dataframe(name)

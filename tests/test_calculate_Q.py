@@ -76,6 +76,35 @@ def test_vectorised_over_multiple_inlets():
     assert Q[0] > 0 and Q[1] > 0 and Q[2] < 0
 
 
+def test_no_exchange_for_subdeadband_head_on_dry_bed():
+    # Pipe head a hair (1e-5 m) above a dry bed -- e.g. pipedream initialising a
+    # superjunction head just above its invert. With the min_head deadband this
+    # must NOT surcharge (which previously seeded a growing dry-bed oscillation).
+    head1D = np.array([0.07001])
+    depth2D = np.array([0.0])
+    bed2D = np.array([0.07])
+    Q = calculate_Q(head1D, depth2D, bed2D, np.array([2.0]), np.array([1.0]), g=G)
+    assert Q[0] == 0.0
+
+
+def test_surcharge_still_fires_above_deadband():
+    # A real head excess (well above min_head) still surcharges.
+    head1D = np.array([0.07 + 0.05])
+    depth2D = np.array([0.0])
+    bed2D = np.array([0.07])
+    Q = calculate_Q(head1D, depth2D, bed2D, np.array([2.0]), np.array([1.0]), g=G)
+    assert Q[0] < 0
+
+
+def test_no_inflow_for_subdeadband_film():
+    # A negligible surface film over a pipe head at the bed -> no orifice inflow.
+    head1D = np.array([0.07])
+    depth2D = np.array([1.0e-5])
+    bed2D = np.array([0.07])
+    Q = calculate_Q(head1D, depth2D, bed2D, np.array([2.0]), np.array([1.0]), g=G)
+    assert Q[0] == 0.0
+
+
 def test_default_g_uses_anuga():
     # With g=None the function pulls ANUGA's gravity; match an explicit call.
     anuga = pytest.importorskip("anuga")
