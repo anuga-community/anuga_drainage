@@ -90,6 +90,31 @@ takes the requested flux as realised. The `Coupler` handles this; if you drive a
 backend directly, trace the specific convention.
 ```
 
+## Where outfall water goes
+
+Outfalls are **boundaries of the 1D network, not coupled to the 2D surface** —
+only `[JUNCTIONS]` exchange with ANUGA. Water that routes to an outfall has two
+possible fates:
+
+1. **It leaves the model (default).** The outfall is free-draining — for
+   pipedream a boundary superjunction held at its invert head (`H_bc`), for SWMM
+   the solver's own outfall. The shed volume is tracked by
+   `backend.outfall_volume()` and, in the {doc}`volume audit <diagnostics>`,
+   counted as a **system sink in `loss`** (like boundary outflow), *not* as a
+   coupling error. This is what the `couple_from_inp` examples do — water simply
+   exits at the outfall.
+
+2. **It returns to the 2D surface.** Pass `outfall_inlet=<index>` to
+   `add_volume_balance(...)` and the outfall volume is treated as an internal
+   transfer dumped back onto the surface at that coupling inlet (as the hand-built
+   `simple_culvert` SWMM example does); the audit folds it into `inlets_anuga` and
+   strips it from that inlet's `removed` so the diagnostics still show only the
+   genuine weir exchange.
+
+Either way the books close — the pipe balance subtracts the outfall term
+explicitly (`V_pipe(t) − V_pipe(0) = inlets_pipe − outfall`), and only the
+*returned* portion counts as a coupling handoff.
+
 ## The loop you write
 
 ```python

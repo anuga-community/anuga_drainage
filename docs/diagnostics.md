@@ -90,7 +90,9 @@ making `R_couple` nonzero.
 
 For outfalls that **return** water to the surface at a specific inlet (as the
 `simple_culvert` SWMM example does), pass `outfall_inlet=<index>` so that return
-is subtracted from the inlet's `removed` (and shown in its own column).
+is subtracted from the inlet's `removed` (and shown in its own column). See
+[where outfall water goes](coupling.md#where-outfall-water-goes) for the two
+fates of outfall water and how each lands in this audit.
 
 ## What the audit has shown
 
